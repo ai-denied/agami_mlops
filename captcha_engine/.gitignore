@@ -22,3 +22,16 @@ env/
 .idea/
 *.swp
 .DS_Store
+
+# 환경 — .env.example / .env.deploy.example 은 의도된 추적 유지 (template)
+.env
+.env.local
+.env.deploy
+.env.*.local
+
+# 시크릿 키
+*.pem
+*.key
+
+# 로그
+*.log

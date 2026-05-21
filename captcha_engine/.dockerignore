@@ -1,0 +1,57 @@
+# =============================================================================
+# Docker build context 제외 패턴
+# - 운영 이미지 (Dockerfile.prod) 빌드 시 불필요한 파일을 컨텍스트에 안 넣어
+#   이미지 크기/빌드 속도 최적화 + 시크릿/로그 노출 방지
+# =============================================================================
+
+# === Git ===
+.git/
+.gitignore
+.gitattributes
+
+# === Python ===
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# === IDE / OS ===
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# === 시크릿 / 환경 ===
+.env
+.env.local
+.env.deploy
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# === 로컬 분석 / 로그 ===
+captcha_logs/
+*.log
+
+# === 운영 이미지 불필요 ===
+README*.md
+docs/
+tests/
+k8s/
+macro_test1.py
+bot_macro.py
+Dockerfile
+docker-compose.yml
+
+# === 빌드 산출물 ===
+dist/
+build/
+*.tar.gz
