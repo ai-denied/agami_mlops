@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0243.jpg",
+  "background": "closet_full_of_stuff_47.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 479,
+    "y": 282,
+    "width": 91,
+    "height": 98
+  }
+}

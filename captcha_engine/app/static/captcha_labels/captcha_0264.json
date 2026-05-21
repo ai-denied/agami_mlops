@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0264.jpg",
+  "background": "storage_room_clutter_21.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 538,
+    "y": 7,
+    "width": 129,
+    "height": 203
+  }
+}

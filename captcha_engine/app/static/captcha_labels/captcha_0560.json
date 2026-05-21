@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0560.jpg",
+  "background": "kitchen_counter_clutter_44.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 20,
+    "y": 209,
+    "width": 152,
+    "height": 204
+  }
+}

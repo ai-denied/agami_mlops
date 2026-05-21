@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0155.jpg",
+  "background": "messy_kitchen_36.jpg",
+  "target_object": "춘식이",
+  "bbox": {
+    "x": 125,
+    "y": 399,
+    "width": 56,
+    "height": 56
+  }
+}

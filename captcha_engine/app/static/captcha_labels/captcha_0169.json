@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0169.jpg",
+  "background": "supermarket_shelf_items_31.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 512,
+    "y": 402,
+    "width": 71,
+    "height": 71
+  }
+}

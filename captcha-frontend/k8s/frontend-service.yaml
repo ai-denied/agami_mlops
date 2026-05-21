@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: captcha-frontend
+  labels:
+    app: captcha-frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: captcha-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0806.jpg",
+  "background": "messy_workspace_6.jpg",
+  "target_object": "cup3",
+  "bbox": {
+    "x": 124,
+    "y": 11,
+    "width": 158,
+    "height": 158
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0008.jpg",
+  "background": "supermarket_shelf_items_12.jpg",
+  "target_object": "shoes1",
+  "bbox": {
+    "x": 23,
+    "y": 56,
+    "width": 109,
+    "height": 109
+  }
+}

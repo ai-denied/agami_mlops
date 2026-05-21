@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0780.jpg",
+  "background": "classroom_desk_messy_17.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 205,
+    "y": 350,
+    "width": 108,
+    "height": 130
+  }
+}

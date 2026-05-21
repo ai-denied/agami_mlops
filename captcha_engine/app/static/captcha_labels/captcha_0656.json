@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0656.jpg",
+  "background": "messy_desk_29.jpg",
+  "target_object": "shoes2",
+  "bbox": {
+    "x": 520,
+    "y": 463,
+    "width": 80,
+    "height": 80
+  }
+}

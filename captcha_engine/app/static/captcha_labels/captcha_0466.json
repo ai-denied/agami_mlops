@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0466.jpg",
+  "background": "dining_table_with_items_31.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 546,
+    "y": 175,
+    "width": 113,
+    "height": 172
+  }
+}

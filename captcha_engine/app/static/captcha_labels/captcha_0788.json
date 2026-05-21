@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0788.jpg",
+  "background": "living_room_clutter_47.jpg",
+  "target_object": "shoes2",
+  "bbox": {
+    "x": 331,
+    "y": 282,
+    "width": 128,
+    "height": 128
+  }
+}

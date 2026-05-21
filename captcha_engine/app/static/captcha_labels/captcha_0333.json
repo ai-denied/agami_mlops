@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0333.jpg",
+  "background": "convenience_store_shelf_20.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 317,
+    "y": 462,
+    "width": 69,
+    "height": 69
+  }
+}

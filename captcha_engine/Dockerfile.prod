@@ -1,0 +1,59 @@
+# =============================================================================
+# Captcha Engine — Production image (멀티스테이지)
+# -----------------------------------------------------------------------------
+# - builder: 의존성 설치 (--user 로 ~/.local 에 격리)
+# - runtime: 슬림 베이스에 ~/.local + 앱 소스만 복사, 비-root 로 실행
+# - 빌드: docker buildx build --platform linux/amd64 -f Dockerfile.prod ...
+#   (M1/M2 맥에서도 amd64 노드용 이미지 산출)
+# =============================================================================
+
+# ---------- builder ----------
+FROM --platform=$BUILDPLATFORM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 빌드 시 컴파일 의존성이 필요한 패키지(asyncpg 등) 가 일부 wheel 없이 들어올 때 대비
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY requirements.txt .
+# --user 로 설치 → /root/.local 에 모임. 다음 stage 에서 비-root 사용자에게 옮긴다.
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+
+# ---------- runtime ----------
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/home/appuser/.local/bin:${PATH}"
+
+# libpq (asyncpg 가 동적 링크하지 않지만, psycopg2 등 future-proof) 만 런타임에 유지
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 1000 appuser \
+    && useradd -m -u 1000 -g 1000 appuser
+
+WORKDIR /app
+
+# builder 의 site-packages 를 비-root 홈으로 복사
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
+
+# 앱 소스 (main.py 는 captcha_engine 루트에 위치, app/ 는 패키지)
+COPY --chown=appuser:appuser main.py /app/main.py
+COPY --chown=appuser:appuser app /app/app
+
+USER appuser
+
+EXPOSE 8000
+
+# main.py 가 captcha_engine 루트에 있으므로 모듈 경로는 "main:app".
+# (참고: 현재 Dockerfile, docker-compose.yml 도 동일 경로로 작성됨.
+#  layout 을 "app/main.py" 로 옮긴다면 아래 entrypoint 도 함께 갱신할 것.)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

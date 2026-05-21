@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0578.jpg",
+  "background": "messy_workspace_26.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 518,
+    "y": 21,
+    "width": 91,
+    "height": 91
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0549.jpg",
+  "background": "convenience_store_shelf_15.jpg",
+  "target_object": "shoes5",
+  "bbox": {
+    "x": 343,
+    "y": 329,
+    "width": 140,
+    "height": 113
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0835.jpg",
+  "background": "car_interior_messy_17.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 627,
+    "y": 77,
+    "width": 142,
+    "height": 150
+  }
+}

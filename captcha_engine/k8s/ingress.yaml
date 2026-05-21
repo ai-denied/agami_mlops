@@ -1,0 +1,42 @@
+# =============================================================================
+# Bastion 의 nginx-ingress-controller 가 처리.
+# /api/*  → captcha-api  (rewrite-target 으로 /api prefix 제거)
+# /       → captcha-frontend
+#
+# HTTPS 전환 시 추가/수정 사항은 docs/HTTPS_MIGRATION.md 참고.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: captcha-ingress
+  annotations:
+    # /api/foo → /foo 로 변환 후 백엔드에 전달 (백엔드 라우터는 /v1/* /health 만 정의)
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # HTTPS 전환 시:
+    #   cert-manager.io/cluster-issuer: letsencrypt-prod
+    #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: captcha-api
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: captcha-frontend
+                port:
+                  number: 80
+  # HTTPS 전환 시 추가:
+  # tls:
+  #   - hosts:
+  #       - <도메인>
+  #     secretName: captcha-tls

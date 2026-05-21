@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0715.jpg",
+  "background": "supermarket_shelf_items_41.jpg",
+  "target_object": "key3",
+  "bbox": {
+    "x": 607,
+    "y": 330,
+    "width": 84,
+    "height": 84
+  }
+}

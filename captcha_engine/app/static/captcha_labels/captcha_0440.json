@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0440.jpg",
+  "background": "dining_table_with_items_19.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 341,
+    "y": 449,
+    "width": 107,
+    "height": 118
+  }
+}

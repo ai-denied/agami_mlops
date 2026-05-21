@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0151.jpg",
+  "background": "living_room_clutter_37.jpg",
+  "target_object": "cup2",
+  "bbox": {
+    "x": 639,
+    "y": 231,
+    "width": 145,
+    "height": 145
+  }
+}

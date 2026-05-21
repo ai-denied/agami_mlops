@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0667.jpg",
+  "background": "storage_room_clutter_11.jpg",
+  "target_object": "춘식이",
+  "bbox": {
+    "x": 519,
+    "y": 333,
+    "width": 122,
+    "height": 122
+  }
+}

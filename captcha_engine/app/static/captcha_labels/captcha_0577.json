@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0577.jpg",
+  "background": "supermarket_shelf_items_44.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 1,
+    "y": 496,
+    "width": 94,
+    "height": 104
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0016.jpg",
+  "background": "cluttered_bedroom_34.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 288,
+    "y": 167,
+    "width": 73,
+    "height": 112
+  }
+}

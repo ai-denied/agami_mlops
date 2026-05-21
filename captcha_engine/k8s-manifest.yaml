@@ -1,0 +1,62 @@
+# 1. API Deployment (메인 셰프 복제 및 배치)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captcha-api-deployment
+spec:
+  replicas: 3 # 트래픽 분산을 위해 FastAPI 서버를 3개로 스케일 아웃
+  selector:
+    matchLabels:
+      app: captcha-api
+  template:
+    metadata:
+      labels:
+        app: captcha-api
+    spec:
+      containers:
+      - name: fastapi-container
+        image: captcha-api:latest # 추후 Github Actions를 통해 빌드된 실제 도커 이미지 주소로 변경
+        ports:
+        - containerPort: 8000
+        env:
+        # 실제 운영 환경에서는 Secret 리소스를 사용하여 안전하게 주입합니다.
+        - name: DATABASE_URL
+          value: "postgresql+asyncpg://USER:PASSWORD@DB_HOST/DB_NAME"
+        - name: REDIS_URL
+          value: "redis://REDIS_HOST:6379/0"
+
+---
+# 2. API Service (복제된 셰프들을 하나로 묶어주는 내부 연락망)
+apiVersion: v1
+kind: Service
+metadata:
+  name: captcha-api-service
+spec:
+  selector:
+    app: captcha-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: ClusterIP # K8s 클러스터 내부에서만 접근 가능한 기본 타입
+
+---
+# 3. Ingress (외부 트래픽을 Nginx를 거쳐 API Service로 전달하는 정문)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: captcha-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx # Nginx Ingress Controller 사용
+spec:
+  rules:
+  - host: api.captcha-service.com # 추후 서비스에 연결할 실제 도메인명
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: captcha-api-service
+            port:
+              number: 80

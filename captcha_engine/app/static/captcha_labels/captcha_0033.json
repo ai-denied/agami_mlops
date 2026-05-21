@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0033.jpg",
+  "background": "supermarket_shelf_items_43.jpg",
+  "target_object": "춘식이",
+  "bbox": {
+    "x": 378,
+    "y": 73,
+    "width": 125,
+    "height": 125
+  }
+}

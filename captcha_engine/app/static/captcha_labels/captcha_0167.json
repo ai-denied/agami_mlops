@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0167.jpg",
+  "background": "car_interior_messy_22.jpg",
+  "target_object": "cup5",
+  "bbox": {
+    "x": 43,
+    "y": 430,
+    "width": 81,
+    "height": 94
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0170.jpg",
+  "background": "storage_room_clutter_34.jpg",
+  "target_object": "cup1",
+  "bbox": {
+    "x": 539,
+    "y": 447,
+    "width": 79,
+    "height": 79
+  }
+}

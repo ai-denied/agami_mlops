@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0258.jpg",
+  "background": "closet_full_of_stuff_8.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 292,
+    "y": 268,
+    "width": 94,
+    "height": 94
+  }
+}

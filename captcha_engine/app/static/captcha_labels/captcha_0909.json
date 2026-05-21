@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0909.jpg",
+  "background": "car_interior_messy_13.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 65,
+    "y": 357,
+    "width": 155,
+    "height": 193
+  }
+}

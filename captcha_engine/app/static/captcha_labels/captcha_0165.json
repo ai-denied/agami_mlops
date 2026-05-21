@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0165.jpg",
+  "background": "cluttered_desk_48.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 134,
+    "y": 169,
+    "width": 120,
+    "height": 120
+  }
+}

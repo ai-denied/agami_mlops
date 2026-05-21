@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0741.jpg",
+  "background": "messy_kitchen_29.jpg",
+  "target_object": "key3",
+  "bbox": {
+    "x": 173,
+    "y": 210,
+    "width": 80,
+    "height": 80
+  }
+}

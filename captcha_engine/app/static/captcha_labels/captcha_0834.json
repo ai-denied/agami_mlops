@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0834.jpg",
+  "background": "messy_room_29.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 138,
+    "y": 199,
+    "width": 160,
+    "height": 167
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0228.jpg",
+  "background": "garage_messy_18.jpg",
+  "target_object": "어피치",
+  "bbox": {
+    "x": 183,
+    "y": 341,
+    "width": 102,
+    "height": 102
+  }
+}

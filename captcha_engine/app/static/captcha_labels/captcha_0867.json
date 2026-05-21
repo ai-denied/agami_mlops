@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0867.jpg",
+  "background": "living_room_clutter_20.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 124,
+    "y": 16,
+    "width": 147,
+    "height": 155
+  }
+}

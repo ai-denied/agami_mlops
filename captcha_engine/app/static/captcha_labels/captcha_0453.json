@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0453.jpg",
+  "background": "dining_table_with_items_40.jpg",
+  "target_object": "어피치",
+  "bbox": {
+    "x": 272,
+    "y": 243,
+    "width": 126,
+    "height": 126
+  }
+}

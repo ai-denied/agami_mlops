@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0614.jpg",
+  "background": "room_with_scattered_items_37.jpg",
+  "target_object": "cup5",
+  "bbox": {
+    "x": 496,
+    "y": 164,
+    "width": 137,
+    "height": 152
+  }
+}

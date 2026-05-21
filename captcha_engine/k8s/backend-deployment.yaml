@@ -1,0 +1,48 @@
+# NOTE: image 의 HARBOR_URL / VERSION 은 sed 로 치환 (docs/DEPLOY_K3S.md 1단계 참고).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: captcha-api
+  labels:
+    app: captcha-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: captcha-api
+  template:
+    metadata:
+      labels:
+        app: captcha-api
+    spec:
+      containers:
+        - name: api
+          image: HARBOR_URL/agami/captcha-api:VERSION
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: captcha-api-config
+            - secretRef:
+                name: captcha-api-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

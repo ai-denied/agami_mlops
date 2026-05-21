@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0532.jpg",
+  "background": "supermarket_shelf_items_6.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 285,
+    "y": 123,
+    "width": 105,
+    "height": 159
+  }
+}

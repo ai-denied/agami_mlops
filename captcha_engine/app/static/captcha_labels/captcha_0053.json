@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0053.jpg",
+  "background": "convenience_store_shelf_31.jpg",
+  "target_object": "cup2",
+  "bbox": {
+    "x": 297,
+    "y": 291,
+    "width": 105,
+    "height": 105
+  }
+}

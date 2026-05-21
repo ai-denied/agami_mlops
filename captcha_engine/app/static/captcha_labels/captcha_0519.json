@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0519.jpg",
+  "background": "convenience_store_shelf_1.jpg",
+  "target_object": "라이언",
+  "bbox": {
+    "x": 38,
+    "y": 434,
+    "width": 132,
+    "height": 157
+  }
+}

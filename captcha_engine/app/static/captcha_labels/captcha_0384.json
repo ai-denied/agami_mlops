@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0384.jpg",
+  "background": "garage_messy_9.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 133,
+    "y": 43,
+    "width": 124,
+    "height": 124
+  }
+}

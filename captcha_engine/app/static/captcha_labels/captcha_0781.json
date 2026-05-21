@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0781.jpg",
+  "background": "dining_table_with_items_2.jpg",
+  "target_object": "cup1",
+  "bbox": {
+    "x": 591,
+    "y": 77,
+    "width": 149,
+    "height": 149
+  }
+}

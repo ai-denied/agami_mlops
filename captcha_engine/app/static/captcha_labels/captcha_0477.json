@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0477.jpg",
+  "background": "messy_workspace_18.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 304,
+    "y": 278,
+    "width": 163,
+    "height": 170
+  }
+}

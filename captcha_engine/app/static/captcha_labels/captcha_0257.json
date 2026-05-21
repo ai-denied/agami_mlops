@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0257.jpg",
+  "background": "convenience_store_shelf_31.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 685,
+    "y": 224,
+    "width": 79,
+    "height": 84
+  }
+}

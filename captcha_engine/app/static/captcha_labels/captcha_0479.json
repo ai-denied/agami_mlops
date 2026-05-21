@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0479.jpg",
+  "background": "room_with_scattered_items_21.jpg",
+  "target_object": "무지",
+  "bbox": {
+    "x": 79,
+    "y": 88,
+    "width": 121,
+    "height": 121
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0409.jpg",
+  "background": "cluttered_bedroom_14.jpg",
+  "target_object": "프로도",
+  "bbox": {
+    "x": 271,
+    "y": 341,
+    "width": 164,
+    "height": 174
+  }
+}

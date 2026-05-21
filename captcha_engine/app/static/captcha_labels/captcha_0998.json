@@ -1,0 +1,11 @@
+{
+  "image": "captcha_0998.jpg",
+  "background": "living_room_clutter_32.jpg",
+  "target_object": "어피치",
+  "bbox": {
+    "x": 523,
+    "y": 142,
+    "width": 156,
+    "height": 156
+  }
+}
