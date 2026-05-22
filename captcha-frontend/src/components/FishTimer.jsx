@@ -303,7 +303,7 @@ export default function FishTimer({ remainingMs, totalMs, className = '' }) {
             }}
           >
             <img
-              src="/timer-fish.png"
+              src={`${import.meta.env.BASE_URL}timer-fish.png`}
               alt=""
               aria-hidden
               width={FISH_SIZE_PX}

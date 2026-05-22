@@ -149,8 +149,11 @@ export default function ImageGridCaptcha({ spec, onSubmit, onRefresh, status, er
           />
         </div>
 
-        {/* 현재 문제 이미지 */}
-        <div className="relative w-full aspect-square bg-[#f0f4fb] rounded-xl overflow-hidden border-2 border-[#e0e7f3]">
+        {/* 현재 문제 이미지 — 컨테이너 자체에는 사이즈 강제 없이 flex 가운데 정렬.
+            이미지가 max-h-[40vh] 로 viewport 높이 40% 까지만 차지하고 비율(object-contain)
+            을 유지해서, 4지선다 / FishTimer / 푸터 가 같은 화면에 함께 보이도록 한다.
+            spinner 는 이미지 위에 absolute 로 겹쳐 그린다. */}
+        <div className="relative w-full bg-[#f0f4fb] rounded-xl overflow-hidden border-2 border-[#e0e7f3] flex items-center justify-center" style={{ minHeight: '160px' }}>
           <img
             key={step}
             src={currentQ?.image_url}
@@ -158,7 +161,7 @@ export default function ImageGridCaptcha({ spec, onSubmit, onRefresh, status, er
             onLoad={() => setImgLoaded(true)}
             onError={() => setImgLoaded(true)}
             className={
-              'absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ' +
+              'block max-h-[40vh] w-auto max-w-full object-contain transition-opacity duration-300 ' +
               (imgLoaded ? 'opacity-100' : 'opacity-0')
             }
             draggable={false}

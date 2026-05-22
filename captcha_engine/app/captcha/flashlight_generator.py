@@ -53,7 +53,7 @@ DIFFICULTY_PROFILES: Final[dict[Difficulty, dict]] = {
         "min_separation": 0.25,
     },
     Difficulty.MEDIUM: {
-        "flashlight_radius": 0.2,    # was 0.4667
+        "flashlight_radius": 0.195,    # was 0.4667
         "time_limit_sec": 45,
         "hint_after_sec": 18,
         "decoy_count": 1,

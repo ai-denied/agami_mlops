@@ -1,13 +1,23 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import CaptchaPage from './pages/CaptchaPage';
 import ContextCaptchaPage from './pages/ContextCaptchaPage';
+import EmbedEntry from './pages/EmbedEntry';
 
 // =============================================================================
 // 라우팅 엔트리.
 //   /                → 홈 (캡챠 페이지로 이동하는 링크)
 //   /captcha         → 행동 기반 캡챠 (FastAPI /v1/* 사용, kind 드롭다운)
 //   /captcha/context → 감정 맥락 추론 캡챠 전용 페이지 (kind 고정)
+//   /embed           → iframe 임베드 진입점 (?kind=&difficulty=)
+//
+// BrowserRouter basename:
+//   WIDGET_BUILD=1  → '/widget' (FastAPI 가 /widget/ 아래 마운트)
+//   기본 dev/build  → '/'
+//   import.meta.env.BASE_URL 는 vite 가 base 설정값을 그대로 client 에 노출.
+//   trailing slash 를 제거해 BrowserRouter 가 받는 형태로 정규화.
 // =============================================================================
+
+const ROUTER_BASENAME = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '') || '/';
 
 function Home() {
   return (
@@ -34,11 +44,12 @@ function Home() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={ROUTER_BASENAME}>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/captcha" element={<CaptchaPage />} />
         <Route path="/captcha/context" element={<ContextCaptchaPage />} />
+        <Route path="/embed" element={<EmbedEntry />} />
       </Routes>
     </BrowserRouter>
   );

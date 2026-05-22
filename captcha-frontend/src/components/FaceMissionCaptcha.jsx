@@ -1,21 +1,73 @@
 import { useEffect, useRef, useState } from 'react';
-// MediaPipe 패키지는 Closure Compiler IIFE 출력이라 module.exports 가 비어있고
-// named export 가 잡히지 않는다. side-effect 로 import 하면 IIFE 가 실행되며
-// globalThis (브라우저=window) 에 심볼을 등록하므로, 그 다음 globalThis 에서 읽는다.
-import '@mediapipe/face_mesh';
-import '@mediapipe/camera_utils';
-import '@mediapipe/drawing_utils';
 import { detectInstruction } from '../lib/faceDetection';
 import FishTimer from './FishTimer';
 
+// =============================================================================
+// MediaPipe 라이브러리 CDN 로딩
+// -----------------------------------------------------------------------------
+// @mediapipe/* npm 패키지는 package.json 의 sideEffects:[] 정책 때문에 Vite
+// 8 (Rolldown) production tree-shaker 가 side-effect import 를 통째로 제거한다.
+// → 번들에 코드 미포함 → window.FaceMesh undefined → 캡챠 동작 X.
+// 해결: <script> 태그로 jsdelivr CDN 에서 직접 로드. MediaPipe 공식 권장 패턴.
+// 모듈 레벨 single-flight Promise 로 마운트 횟수와 무관하게 1 회만 로드.
+// =============================================================================
+
 const g = /** @type {any} */ (globalThis);
-const FaceMesh = g.FaceMesh;
-const Camera = g.Camera;
-const drawConnectors = g.drawConnectors;
-const FACEMESH_FACE_OVAL = g.FACEMESH_FACE_OVAL;
-const FACEMESH_LEFT_EYE = g.FACEMESH_LEFT_EYE;
-const FACEMESH_RIGHT_EYE = g.FACEMESH_RIGHT_EYE;
-const FACEMESH_LIPS = g.FACEMESH_LIPS;
+
+const MP_CDN_SCRIPTS = [
+  'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js',
+  'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js',
+  'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js',
+];
+const MP_LOAD_TIMEOUT_MS = 10000;
+
+let _mpPromise = null;
+
+function loadMediaPipe() {
+  if (_mpPromise) return _mpPromise;
+  if (typeof document === 'undefined') {
+    return Promise.reject(new Error('document not available (SSR?)'));
+  }
+
+  const loadScript = (src) => new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-mp-src="${src}"]`);
+    if (existing) {
+      if (existing.dataset.loaded === '1') return resolve();
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('script error: ' + src)));
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.crossOrigin = 'anonymous';
+    s.dataset.mpSrc = src;
+    s.addEventListener('load', () => { s.dataset.loaded = '1'; resolve(); });
+    s.addEventListener('error', () => reject(new Error('script error: ' + src)));
+    document.head.appendChild(s);
+  });
+
+  const built = new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`MediaPipe CDN 로드 ${MP_LOAD_TIMEOUT_MS}ms 초과`)),
+      MP_LOAD_TIMEOUT_MS,
+    );
+    Promise.all(MP_CDN_SCRIPTS.map(loadScript))
+      .then(() => {
+        clearTimeout(timer);
+        if (typeof g.FaceMesh !== 'function' || typeof g.Camera !== 'function') {
+          return reject(new Error('FaceMesh/Camera not registered after CDN load'));
+        }
+        resolve();
+      })
+      .catch((err) => { clearTimeout(timer); reject(err); });
+  });
+
+  // 실패 시 다음 호출에서 재시도 가능하도록 cache 비움
+  built.catch(() => { _mpPromise = null; });
+  _mpPromise = built;
+  return built;
+}
 
 // =============================================================================
 // 안면 미션 캡챠 (MediaPipe Face Mesh 기반 실시간 자동 감지)
@@ -83,6 +135,22 @@ export default function FaceMissionCaptcha({ spec, onSubmit, onRefresh }) {
   const [timeLeft, setTimeLeft] = useState(spec?.time_limit_sec ?? 30);
   const [hintVisible, setHintVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [mpReady, setMpReady] = useState(typeof g.FaceMesh === 'function' && typeof g.Camera === 'function');
+
+  // MediaPipe CDN 사전 로딩 (마운트 1회). 이미 로드돼있으면 즉시 ready.
+  useEffect(() => {
+    if (mpReady) return;
+    let cancelled = false;
+    loadMediaPipe()
+      .then(() => { if (!cancelled) setMpReady(true); })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('MediaPipe CDN load failed:', err);
+        setDetectionStatus('error');
+        setErrorMessage('MediaPipe 라이브러리 로드 실패 — 네트워크 또는 CDN 차단을 확인하세요.');
+      });
+    return () => { cancelled = true; };
+  }, [mpReady]);
 
   // ref 동기화
   useEffect(() => { onSubmitRef.current = onSubmit; }, [onSubmit]);
@@ -117,16 +185,16 @@ export default function FaceMissionCaptcha({ spec, onSubmit, onRefresh }) {
   }, [spec]);
 
   // ---------------------------------------------------------------------------
-  // MediaPipe + Camera 초기화 (마운트 시 1회)
+  // MediaPipe + Camera 초기화 (mpReady=true 이후 1회)
   // ---------------------------------------------------------------------------
   useEffect(() => {
+    if (!mpReady) return;  // CDN 로딩 대기
     if (!videoRef.current || !canvasRef.current) return;
 
-    // side-effect import 로도 globalThis 에 심볼이 안 올라온 경우 (네트워크 차단 등)
-    // 명확한 에러 UI 로 떨어뜨려 사용자에게 알림.
-    if (typeof FaceMesh !== 'function' || typeof Camera !== 'function') {
+    // 방어용 가드 — CDN 로드 성공 후에도 만약 등록 안 됐다면 명확히 에러로 떨어뜨림.
+    if (typeof g.FaceMesh !== 'function' || typeof g.Camera !== 'function') {
       setDetectionStatus('error');
-      setErrorMessage('MediaPipe 라이브러리 로드 실패 — 페이지를 새로고침 후 다시 시도해주세요.');
+      setErrorMessage('MediaPipe 심볼 등록 실패 — 페이지 새로고침 후 재시도하세요.');
       return;
     }
 
@@ -136,7 +204,7 @@ export default function FaceMissionCaptcha({ spec, onSubmit, onRefresh }) {
 
     let cancelled = false;
 
-    const faceMesh = new FaceMesh({ locateFile: MP_FACE_MESH_CDN });
+    const faceMesh = new g.FaceMesh({ locateFile: MP_FACE_MESH_CDN });
     faceMesh.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
@@ -147,7 +215,7 @@ export default function FaceMissionCaptcha({ spec, onSubmit, onRefresh }) {
     faceMesh.onResults((results) => handleResults(results, canvas, ctx));
     faceMeshRef.current = faceMesh;
 
-    const camera = new Camera(video, {
+    const camera = new g.Camera(video, {
       onFrame: async () => {
         if (cancelled || !faceMeshRef.current) return;
         try {
@@ -197,7 +265,7 @@ export default function FaceMissionCaptcha({ spec, onSubmit, onRefresh }) {
       }
       video.srcObject = null;
     };
-  }, []);
+  }, [mpReady]);
 
   // ---------------------------------------------------------------------------
   // onResults : 매 프레임 호출 (faceMesh.onResults 콜백)
@@ -499,10 +567,11 @@ function drawMesh(ctx, landmarks, currentType) {
   // 따라서 사용자 관점 highlight 매핑은 다음과 같이 뒤집어서 그린다:
   //   사용자 LEFT eye highlight  → FACEMESH_RIGHT_EYE 에 노란색
   //   사용자 RIGHT eye highlight → FACEMESH_LEFT_EYE  에 노란색
-  drawConnectors(ctx, landmarks, FACEMESH_FACE_OVAL, FACE_OPTS);
-  drawConnectors(ctx, landmarks, FACEMESH_LEFT_EYE, isBlinkRight ? HIGHLIGHT_OPTS : BLUE_OPTS);
-  drawConnectors(ctx, landmarks, FACEMESH_RIGHT_EYE, isBlinkLeft ? HIGHLIGHT_OPTS : BLUE_OPTS);
-  drawConnectors(ctx, landmarks, FACEMESH_LIPS, isSmile ? HIGHLIGHT_OPTS : BLUE_OPTS);
+  // CDN 로드 후 호출되는 콜백이라 g.drawConnectors / g.FACEMESH_* 는 항상 존재.
+  g.drawConnectors(ctx, landmarks, g.FACEMESH_FACE_OVAL, FACE_OPTS);
+  g.drawConnectors(ctx, landmarks, g.FACEMESH_LEFT_EYE, isBlinkRight ? HIGHLIGHT_OPTS : BLUE_OPTS);
+  g.drawConnectors(ctx, landmarks, g.FACEMESH_RIGHT_EYE, isBlinkLeft ? HIGHLIGHT_OPTS : BLUE_OPTS);
+  g.drawConnectors(ctx, landmarks, g.FACEMESH_LIPS, isSmile ? HIGHLIGHT_OPTS : BLUE_OPTS);
 
   // 코끝 점
   const nose = landmarks[1];

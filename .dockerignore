@@ -1,0 +1,52 @@
+# =============================================================================
+# 상위 디렉토리(AI_captcha_project) build context 제외 패턴.
+# captcha_engine/Dockerfile.prod 가 context: ../ 로 빌드될 때 사용된다.
+# =============================================================================
+
+# === Git ===
+.git/
+.gitignore
+.gitattributes
+
+# === macOS / IDE ===
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# === Frontend ===
+captcha-frontend/node_modules/
+captcha-frontend/dist/
+captcha-frontend/.env
+captcha-frontend/.env.local
+captcha-frontend/.env.*.local
+captcha-frontend/.vite/
+captcha-frontend/*.log
+
+# === Backend ===
+captcha_engine/venv/
+captcha_engine/.venv/
+captcha_engine/env/
+captcha_engine/__pycache__/
+captcha_engine/**/__pycache__/
+captcha_engine/*.pyc
+captcha_engine/.pytest_cache/
+captcha_engine/.mypy_cache/
+captcha_engine/.ruff_cache/
+captcha_engine/.env
+captcha_engine/.env.local
+captcha_engine/.env.deploy
+captcha_engine/.env.*.local
+captcha_engine/captcha_logs/
+captcha_engine/static/widget/
+captcha_engine/Dockerfile
+captcha_engine/docker-compose.yml
+captcha_engine/macro_test1.py
+captcha_engine/k8s/
+captcha_engine/docs/
+captcha_engine/tests/
+captcha_engine/README*.md
+
+# === Project root ===
+bot_macro.py
+README.md

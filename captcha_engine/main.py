@@ -14,10 +14,13 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException, RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # 💡 새로 추가된 부품(Import)입니다.
 from pydantic import BaseModel
@@ -64,12 +67,15 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-# CORS 허용 origin 목록은 Settings.cors_origins (콤마 구분 문자열) 에서 읽어온다.
-# 로컬: "http://localhost:5173" / 운영: ConfigMap 에서 "http://210.109.53.140,..." 주입.
+# CORS:
+#   widget 을 임의의 부모 도메인 iframe 에서 임베드 가능하게 하려면 allow_origins=["*"] 가
+#   가장 단순. credentials (쿠키) 는 캡챠가 사용하지 않으므로 False 로 고정해도 무방.
+#   * + credentials 조합은 Starlette/CORS 사양상 거부되므로 두 값이 동시에 변경되어야 함.
+#   추후 부모 도메인을 알면 cors_origins 환경변수로 좁힐 것.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_settings().cors_origins_list,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -185,5 +191,59 @@ app.mount(
     StaticFiles(directory=str(IMAGE_DIR)),
     name="captcha_images",
 )
+# widget 통합 빌드의 프론트가 `${VITE_API_URL=/captcha}${image_url}` = /captcha/static/...
+# 로 요청하기 때문에 동일 디렉토리를 /captcha/static/captcha_images 로도 노출.
+# (기존 /api 는 agami-ingress 의 카카오 로그인 백엔드와 충돌하므로 /captcha 로 분리.)
+# 두 경로 모두 같은 디렉토리를 가리키므로 디스크 중복 없음.
+app.mount(
+    "/captcha/static/captcha_images",
+    StaticFiles(directory=str(IMAGE_DIR)),
+    name="captcha_prefixed_images",
+)
+
+
+# ---------------------------------------------------------------------------
+# /widget — iframe 임베드용 SPA (Vite 빌드 산출물)
+#   - WIDGET_BUILD=1 vite build 의 결과를 captcha_engine/static/widget 에 둠.
+#   - StaticFiles 의 html=True 는 디렉토리 → index.html 만 처리하고 클라이언트
+#     라우팅(/widget/embed 등) 새로고침 시 404. 서브클래스로 404 → index.html 로
+#     떨어뜨려 React Router 가 받게 한다.
+#   - 디렉토리가 아직 없는 환경(로컬 dev, frontend 빌드 안 함)에선 마운트를 건너뜀.
+# ---------------------------------------------------------------------------
+
+WIDGET_DIR = Path(__file__).resolve().parent / "static" / "widget"
+
+
+class SPAStaticFiles(StaticFiles):
+    """디렉토리에 없는 path 요청을 index.html 로 fallback. React Router 호환."""
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404 and self.html:
+                return FileResponse(Path(self.directory) / "index.html")
+            raise
+
+
+if WIDGET_DIR.exists():
+    app.mount(
+        "/widget",
+        SPAStaticFiles(directory=str(WIDGET_DIR), html=True),
+        name="widget",
+    )
+    logger.info("widget mounted at /widget from %s", WIDGET_DIR)
+else:
+    logger.info(
+        "widget dist not found at %s — skipping /widget mount (run "
+        "`WIDGET_BUILD=1 npm run build` in captcha-frontend and copy dist here)",
+        WIDGET_DIR,
+    )
 
 app.include_router(public_router)
+# 동일 router 를 /captcha prefix 로 한 번 더 노출 — widget 통합 빌드의 frontend 가
+# .env.production 의 VITE_API_URL=/captcha 때문에 /captcha/v1/... 로 호출하기 때문.
+# router 내부 prefix("/v1") 와 합쳐져 최종 /captcha/v1/* 경로가 활성화된다.
+# 외부 기업 백엔드의 /v1/siteverify 직접 호출 경로도 그대로 유지.
+# (기존 /api 는 agami-ingress 의 카카오 로그인 백엔드와 충돌하므로 /captcha 로 분리.)
+app.include_router(public_router, prefix="/captcha")

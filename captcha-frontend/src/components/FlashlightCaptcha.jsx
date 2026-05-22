@@ -184,19 +184,30 @@ export default function FlashlightCaptcha({ spec, onSubmit, onRefresh, status, e
           </div>
         </div>
 
-        {/* Image canvas — 4:3 aspect, 손전등 overlay */}
+        {/* Image canvas — 모든 데이터셋 이미지가 800x600 (4:3) 로 통일됨.
+            동적 aspect 계산 없이 CSS 고정값으로 단순 처리.
+              - aspect-[4/3] : 컨테이너 자체가 4:3 비율
+              - max-w-[80vh] : 큰 viewport 에서 너비를 60vh×4/3=80vh 로 cap
+                               → height = 80vh × 0.75 = 60vh ≤ viewport 60%
+              - max-h-[60vh] : 안전망 — 비정상 케이스에도 viewport 넘침 방지
+              - mx-auto      : 너비 축소 시 가운데 정렬
+            ResizeObserver 가 wrap 크기 변화를 감지해 canvas backing store 도
+            DPR 배율로 재조정하고, mousemove/click 의 정규화 좌표는 rect 기준이라
+            사이즈 변경에도 정확도 영향 없음.
+            이미지는 비율이 컨테이너와 같으므로 object-cover/contain 차이 없으나,
+            방어 차원에서 contain 사용 (혹시 데이터셋에 다른 비율 추가될 경우 안전). */}
         <div
           ref={wrapRef}
           onMouseMove={handleMouseMove}
           onClick={handleClick}
-          className="relative w-full aspect-[4/3] bg-[#0a0a14] rounded-lg overflow-hidden border-2 border-[#1a1a28]"
+          className="relative w-full max-w-[80vh] aspect-[4/3] max-h-[60vh] mx-auto bg-[#0a0a14] rounded-lg overflow-hidden border-2 border-[#1a1a28]"
           style={{ cursor: 'none' }}
         >
           <img
             key={currentSub.image_url}
             src={`${API_BASE_URL}${currentSub.image_url}`}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
             draggable={false}
           />
           <div
