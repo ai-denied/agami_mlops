@@ -115,9 +115,18 @@ export default function FlashlightCaptcha({ spec, onSubmit, onRefresh, status, e
     const y = (e.clientY - rect.top) / rect.height;
     tracker.sample(e, rect);
 
+    // canvas_width/height: 클릭 시점 wrap div 의 표시 픽셀 크기. trajectory 좌표가
+    // 이 캔버스 기준이라 Phase 2 MLOps 로거가 학습 데이터(800x600) 좌표계로 환산할 때 사용.
     submissionsRef.current = [
       ...submissionsRef.current,
-      { index: currentIndex, click_x: x, click_y: y, trajectory: tracker.get() },
+      {
+        index: currentIndex,
+        click_x: x,
+        click_y: y,
+        canvas_width: Math.round(rect.width),
+        canvas_height: Math.round(rect.height),
+        trajectory: tracker.get(),
+      },
     ];
 
     if (currentIndex < 2) {
