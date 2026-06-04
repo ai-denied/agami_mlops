@@ -57,6 +57,11 @@ class FlashlightSubmission(BaseModel):
     index: int = Field(..., ge=0, le=2)
     click_x: float = Field(..., ge=0.0, le=1.0)
     click_y: float = Field(..., ge=0.0, le=1.0)
+    # canvas_*: 클릭 시점 프론트 캔버스(wrap div) 의 표시 픽셀 크기. trajectory 좌표가
+    # 이 캔버스 기준이라 Phase 2 MLOps 로거가 학습 데이터(800x600) 좌표계로 환산할 때 사용.
+    # Phase 1: 수신만 함. 기존(미전송) 클라이언트 호환을 위해 Optional.
+    canvas_width: int | None = Field(default=None, ge=1)
+    canvas_height: int | None = Field(default=None, ge=1)
     trajectory: list[dict] = Field(
         default_factory=list,
         description="이 그림에서의 raw 마우스 궤적 [{x,y,t}, ...]. 길이<2면 모델 평가 스킵.",
