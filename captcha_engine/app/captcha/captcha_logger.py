@@ -27,6 +27,10 @@ LOG_ENABLED: bool = os.getenv("CAPTCHA_LOG_ENABLED", "1") == "1"
 # app/captcha/captcha_logger.py 기준 parents[2] = captcha_engine/
 LOG_DIR: Path = Path(__file__).resolve().parents[2] / "captcha_logs"
 
+# MLOps 학습 데이터(sess_*.json 호환) 저장 위치. 기존 통합 로그(LOG_DIR 루트)와 분리.
+# schedule_mlops_logs 가 sub 별로 파일을 떨어뜨림 — 1 challenge 당 최대 3 파일.
+MLOPS_DIR: Path = LOG_DIR / "mlops"
+
 # create_task가 만든 코루틴을 GC로부터 보호하기 위한 set.
 # asyncio docs: "Save a reference to the result of this function, to avoid a
 # task disappearing mid-execution."
@@ -91,4 +95,52 @@ def schedule_attempt_log(payload: dict) -> None:
     task.add_done_callback(_pending_tasks.discard)
 
 
-__all__ = ["schedule_attempt_log", "LOG_DIR", "LOG_ENABLED"]
+def _ensure_mlops_dir() -> bool:
+    """MLOps 디렉토리 보장. 권한 에러 시 False → 로깅 스킵."""
+    try:
+        MLOPS_DIR.mkdir(parents=True, exist_ok=True)
+        return True
+    except OSError as e:
+        logger.warning("captcha_logs/mlops 디렉토리 생성 실패: %s. MLOps 로깅 비활성.", e)
+        return False
+
+
+async def _save_mlops_sessions(sessions: list[dict]) -> None:
+    """학습 포맷 세션 리스트를 sub 별 파일로 저장. 각 파일 = session_id.json."""
+    if not sessions or not _ensure_mlops_dir():
+        return
+    for s in sessions:
+        sid = s.get("session_id") or "unknown"
+        await asyncio.to_thread(_safe_write, MLOPS_DIR / f"{sid}.json", s)
+
+
+def schedule_mlops_logs(sessions: list[dict]) -> None:
+    """
+    MLOps 학습 데이터(sess_*.json 호환) 를 비동기로 큐잉. 호출자는 await 하지 않는다.
+
+    schedule_attempt_log 와 동일한 fire-and-forget 패턴 (GC-safe set, sync fallback).
+    LOG_ENABLED 환경변수를 공유 — 통합 로그가 비활성이면 MLOps 도 비활성.
+    sessions 빈 리스트면 no-op (예: 구버전 클라이언트로 canvas 정보 미수신).
+    """
+    if not LOG_ENABLED or not sessions:
+        return
+    try:
+        task = asyncio.create_task(_save_mlops_sessions(sessions))
+    except RuntimeError:
+        # 실행 중인 이벤트 루프가 없으면 (테스트 등) 동기로 떨어뜨림.
+        if _ensure_mlops_dir():
+            for s in sessions:
+                sid = s.get("session_id") or "unknown"
+                _safe_write(MLOPS_DIR / f"{sid}.json", s)
+        return
+    _pending_tasks.add(task)
+    task.add_done_callback(_pending_tasks.discard)
+
+
+__all__ = [
+    "schedule_attempt_log",
+    "schedule_mlops_logs",
+    "LOG_DIR",
+    "MLOPS_DIR",
+    "LOG_ENABLED",
+]

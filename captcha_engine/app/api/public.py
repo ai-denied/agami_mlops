@@ -33,8 +33,9 @@ from app.captcha.context_generator import generate_context_challenge
 from app.captcha.face_generator import generate_face_challenge
 from app.captcha.flashlight_generator import generate_flashlight_challenge
 from app.captcha.flashlight_model import FlashlightModel
-from app.captcha.captcha_logger import schedule_attempt_log
+from app.captcha.captcha_logger import schedule_attempt_log, schedule_mlops_logs
 from app.captcha.flashlight_policy import evaluate_flashlight_decision
+from app.captcha.mlops_formatter import to_training_sessions
 from app.captcha.mouse_features import extract_features_for_model
 from app.captcha.verifier import (
     baseline_verdict,
@@ -372,6 +373,11 @@ async def _flashlight_submit_bundle(
             # 마우스 궤적 raw (프론트가 보낸 그대로: {x,y,t})
             "trajectory": list(sub.trajectory) if sub.trajectory else [],
             "trajectory_count": len(sub.trajectory) if sub.trajectory else 0,
+            # MLOps 학습 데이터 변환용 (Phase 2a). 통합 로그에도 노출되지만 키 추가만 — 기존 값 무수정.
+            # mlops_formatter 가 trajectory 픽셀을 800x600 좌표계로 환산할 때 사용.
+            # 구버전 클라이언트는 None — 해당 sub 의 mlops 파일은 생성 안 됨.
+            "canvas_width": sub.canvas_width,
+            "canvas_height": sub.canvas_height,
         })
 
     log_payload: dict = {
@@ -394,6 +400,17 @@ async def _flashlight_submit_bundle(
         "requester_ip": request.client.host if request.client else None,
     }
     schedule_attempt_log(log_payload)
+
+    # --- MLOps 학습 데이터(sess_*.json 호환) 변환 + 저장 (Phase 2a) -----------------
+    # 통합 로그와 독립. fire-and-forget — 응답 흐름 절대 비차단.
+    # canvas_width/height 가 None 인 sub 는 mlops_formatter 가 SKIP (정확한 좌표 환산 불가).
+    try:
+        unix_ms_for_mlops = int(datetime.now(timezone.utc).timestamp() * 1000)
+        mlops_sessions = to_training_sessions(log_payload, unix_ms_for_mlops)
+        schedule_mlops_logs(mlops_sessions)
+    except Exception:
+        # 변환 자체에서 예외 발생해도 응답에는 절대 영향 없게.
+        logger.exception("mlops_formatter 변환/저장 실패 (응답 흐름 비차단)")
     # --- 로그 끝 ------------------------------------------------------------------
 
     if decision == "allow":
