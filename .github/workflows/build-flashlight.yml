@@ -12,6 +12,7 @@ on:
   workflow_dispatch:
 
 env:
+  HARBOR_PROJECT: agami
   IMAGE_NAME: agami-mlops
   DOCKERFILE_PATH: ./ml-pipeline/Dockerfile.flashlight
 
@@ -50,16 +51,18 @@ jobs:
           file: ${{ env.DOCKERFILE_PATH }}
           push: true
           tags: |
-            ${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_tag }}
-            ${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_latest }}
-          cache-from: type=registry,ref=${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+            ${{ secrets.HARBOR_URL }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_tag }}
+            ${{ secrets.HARBOR_URL }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_latest }}
+          cache-from: type=registry,ref=${{ secrets.HARBOR_URL }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.HARBOR_URL }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
       - name: Image build summary
         run: |
           echo "✅ Docker image built and pushed successfully"
           echo "Registry: ${{ secrets.HARBOR_URL }}"
+          echo "Project: ${{ env.HARBOR_PROJECT }}"
           echo "Image: ${{ env.IMAGE_NAME }}"
+          echo "Full path: ${{ secrets.HARBOR_URL }}/${{ env.HARBOR_PROJECT }}/${{ env.IMAGE_NAME }}"
           echo "Tags:"
           echo "  - ${{ steps.tag.outputs.image_tag }}"
           echo "  - ${{ steps.tag.outputs.image_latest }}"
