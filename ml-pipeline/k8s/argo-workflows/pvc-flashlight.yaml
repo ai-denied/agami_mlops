@@ -71,7 +71,7 @@ spec:
   #   온프레미스/Longhorn: "longhorn"
   #   NFS CSI       : "nfs-client"
   # → 아래 줄의 주석을 해제하고 환경에 맞는 값으로 교체할 것
-  # storageClassName: "standard"
+  storageClassName: "local-path"
 
 ---
 # =============================================================================
@@ -135,7 +135,7 @@ spec:
       #   runs/ (여러 학습 run)        ~수백MB
       #   → 합계 ~2GB, 향후 데이터 증가 여유분 포함 20Gi로 설정
 
-  # storageClassName: "standard"   # 환경에 맞게 주석 해제 후 수정
+  storageClassName: "local-path"   # K3s 기본 local-path provisioner
 
 # =============================================================================
 # [참고] runs/를 별도 PVC로 분리하는 경우 (선택적)
