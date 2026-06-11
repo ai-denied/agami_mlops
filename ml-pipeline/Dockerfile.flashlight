@@ -1,0 +1,55 @@
+# =============================================================================
+# Dockerfile.flashlight
+#
+# 용도  : flashlight pipeline (package → compare → promote) 실행용 이미지
+# 대상  : Argo Workflows run_model_update_pipeline.py 단일 step 실행
+#
+# 포함  : flashlight/ 패키지 코드, pipeline 의존성
+# 미포함: data/, runs/, model-store/  → 런타임에 PVC로 마운트
+#         facial_recognition/, facial_recognition 의존성
+#
+# 빌드:
+#   docker build -f ml-pipeline/Dockerfile.flashlight \
+#                -t agami-mlops-flashlight:latest .
+#
+# 로컬 실행 테스트:
+#   docker run --rm \
+#     -v $(pwd)/ml-pipeline/model-store:/workspace/ml-pipeline/model-store \
+#     -v $(pwd)/ml-pipeline/runs:/workspace/ml-pipeline/runs \
+#     agami-mlops-flashlight:latest \
+#     python -m flashlight.scripts.run_model_update_pipeline \
+#       --version v4_20260610 \
+#       --onnx       runs/mouse_gru_final_v3_policy_tuned/mouse_gru_server_final_v2.onnx \
+#       --normalizer runs/mouse_gru_final_v3_policy_tuned/mouse_normalizer_server_final_v2.joblib \
+#       --metadata   runs/mouse_gru_final_v3_policy_tuned/mouse_metadata_server_final_v2.json \
+#       --dry-run
+# =============================================================================
+
+FROM python:3.10-slim
+
+# 시스템 패키지: libgomp는 scikit-learn/numpy OpenMP 의존성
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 컨테이너 내 작업 디렉토리
+# 모든 스크립트가 __file__ 기준으로 경로를 계산하므로
+# 코드가 /workspace/ml-pipeline/flashlight/scripts/ 에 위치해야
+# model-store, runs 경로가 /workspace/ml-pipeline/ 하위로 올바르게 해석된다.
+WORKDIR /workspace/ml-pipeline
+
+# 의존성 먼저 설치 (레이어 캐시 최적화)
+COPY ml-pipeline/requirements-flashlight.txt ./requirements-flashlight.txt
+RUN pip install --no-cache-dir -r requirements-flashlight.txt
+
+# flashlight 패키지 코드 복사
+# data/, runs/, model-store/ 는 PVC로 마운트하므로 이미지에 포함하지 않는다.
+COPY ml-pipeline/flashlight/ ./flashlight/
+
+# PYTHONPATH 설정
+# python -m flashlight.scripts.* 실행 시 /workspace/ml-pipeline 이 sys.path에 있어야 한다.
+ENV PYTHONPATH=/workspace/ml-pipeline
+
+# 기본 명령: 인자 없이 실행 시 도움말 출력
+CMD ["python", "-m", "flashlight.scripts.run_model_update_pipeline", "--help"]

@@ -1,0 +1,43 @@
+# =============================================================================
+# .dockerignore — Dockerfile.flashlight 빌드 컨텍스트 최적화
+# 위치: 저장소 루트 (agami-mlops/)
+# =============================================================================
+
+# Python 캐시
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# 가상환경 (trailing slash 없이 작성해야 legacy builder에서도 동작)
+ml-pipeline/venv
+ml-pipeline/venv-mlflow
+
+# 학습 데이터 및 원시 데이터 (PVC로 마운트)
+data
+
+# 학습 산출물 (PVC로 마운트)
+ml-pipeline/runs
+
+# model-store (PVC로 마운트)
+ml-pipeline/model-store
+
+# MLflow 아티팩트
+ml-pipeline/mlartifacts
+ml-pipeline/mlflow.db
+
+# facial_recognition 전체 (pipeline 이미지에 불필요)
+ml-pipeline/facial_recognition
+
+# Git
+.git/
+.gitignore
+
+# 개발 도구
+.vscode/
+.idea/
+**/*.egg-info/
+
+# 로그 및 임시 파일
+**/*.log
+**/*.tmp

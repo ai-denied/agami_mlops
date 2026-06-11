@@ -85,7 +85,7 @@ spec:
     script:
       # TODO: 실제 이미지 이름/태그로 교체 필요
       # 이 이미지에는 ml-pipeline 코드, Python 의존성이 포함되어야 한다
-      image: agami-mlops-flashlight:latest
+      image: agami-captcha.cloud:8443/agami-mlops-flashlight:latest
       imagePullPolicy: IfNotPresent
 
       command: [python]

@@ -1,3 +1,75 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Sentient-CAPTCHA Mouse Behavior GRU Trainer v2 — 공식 학습 진입점
+
+실행 예시
+python ml-pipeline/flashlight/scripts/train_mouse_gru.py \
+  --data /path/to/merged_dynamic_features_sampled.json \
+  --out-dir ./runs/mouse_gru_final_v3_policy_tuned
+"""
+
+import argparse
+import json
+import os
+import sys
+
+import joblib
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
+
+try:
+    import mlflow
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+
+# ml-pipeline/ をパスに追加して flashlight パッケージとして認識させる
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+from flashlight.common.constants import SEQ_FEATURES, STATIC_FEATURES  # noqa: E402
+from flashlight.common.device import get_device, set_seed  # noqa: E402
+from flashlight.data.dataset import collate_fn  # noqa: E402
+from flashlight.data.normalizer import MouseFeatureNormalizer  # noqa: E402
+from flashlight.evaluation.metrics import (  # noqa: E402
+    choose_threshold_by_human_block_rate,
+    evaluate_thresholds,
+    get_tpr_at_fpr,
+    print_eval_report,
+    safe_pr_auc,
+    safe_roc_auc,
+)
+from flashlight.evaluation.plot import (  # noqa: E402
+    plot_loss,
+    plot_pr_curve,
+    plot_roc_curve,
+    plot_score_distribution,
+    plot_threshold_metrics,
+)
+from flashlight.evaluation.threshold_policy import evaluate_three_attempt_policy  # noqa: E402
+from flashlight.model.mouse_gru import MouseGRUModelV2  # noqa: E402
+from flashlight.training.split import make_train_val_test_split  # noqa: E402
+from flashlight.training.train_gru import (  # noqa: E402
+    check_data_path,
+    diagnose_dataset,
+    evaluate_loss,
+    get_pos_weight,
+    make_loader,
+    predict_risk_scores,
+    train_one_epoch,
+)
+from flashlight.validation.validate_dataset import validate_dataset  # noqa: E402
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Sentient-CAPTCHA mouse behavior GRU trainer with 3-attempt policy"
@@ -70,6 +142,22 @@ def main():
     parser.add_argument("--require-gpu", action="store_true")
     parser.add_argument("--print-every", type=int, default=1)
 
+    parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="데이터 검증 단계를 건너뜀 (개발/디버그용)",
+    )
+    parser.add_argument(
+        "--strict-validation",
+        action="store_true",
+        help="경고(warning)도 학습 중단으로 처리",
+    )
+
+    parser.add_argument("--use-mlflow", action="store_true", help="MLflow Tracking 활성화")
+    parser.add_argument("--mlflow-tracking-uri", type=str, default=None, help="MLflow Tracking URI (예: http://localhost:5000)")
+    parser.add_argument("--mlflow-experiment-name", type=str, default="mouse_gru", help="MLflow Experiment 이름")
+    parser.add_argument("--mlflow-run-name", type=str, default=None, help="MLflow Run 이름")
+
     parser.add_argument("--three-attempts", type=int, default=3)
     parser.add_argument("--block-suspicious-count", type=int, default=2)
     parser.add_argument("--block-high-risk-count", type=int, default=1)
@@ -84,6 +172,38 @@ def main():
 
     set_seed(args.seed)
     os.makedirs(args.out_dir, exist_ok=True)
+
+    # ── MLflow 초기화 ─────────────────────────────────────────────────────────
+    if args.use_mlflow:
+        if not MLFLOW_AVAILABLE:
+            print(
+                "\n[MLflow] mlflow 패키지를 찾을 수 없습니다.\n"
+                "         pip install mlflow 를 실행한 뒤 다시 시도해 주세요.\n"
+                "         지금은 --use-mlflow 옵션을 무시하고 기존 방식으로 학습합니다.\n"
+            )
+            args.use_mlflow = False
+        else:
+            if args.mlflow_tracking_uri:
+                mlflow.set_tracking_uri(args.mlflow_tracking_uri)
+            mlflow.set_experiment(args.mlflow_experiment_name)
+            mlflow.start_run(run_name=args.mlflow_run_name)
+            mlflow.log_params({
+                "data": args.data,
+                "out_dir": args.out_dir,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "hidden": args.hidden,
+                "layers": args.layers,
+                "dropout": args.dropout,
+                "lr": args.lr,
+                "weight_decay": args.weight_decay,
+                "patience": args.patience,
+                "device": args.device,
+                "max_human_block_rate": args.max_human_block_rate,
+                "high_risk_human_block_rate": args.high_risk_human_block_rate,
+            })
+            print(f"[MLflow] Run 시작: experiment={args.mlflow_experiment_name}, run_name={args.mlflow_run_name}")
+    # ─────────────────────────────────────────────────────────────────────────
 
     device = get_device(args.device)
 
@@ -108,6 +228,24 @@ def main():
 
     if len(set(all_labels)) < 2:
         raise ValueError("label이 한 종류만 있습니다. 0=human, 1=bot 데이터가 모두 필요합니다.")
+
+    # ── 데이터 검증 ──────────────────────────────────────────────────────────
+    if args.skip_validation:
+        print("\n[Validation] --skip-validation 설정으로 검증 단계 생략")
+    else:
+        val_report = validate_dataset(
+            data_path=args.data,
+            out_dir=args.out_dir,
+            strict=args.strict_validation,
+        )
+        if not val_report["summary"]["passed"]:
+            failed = val_report["summary"]["failed_checks"]
+            report_path = os.path.join(args.out_dir, "validation_report.json")
+            raise RuntimeError(
+                f"데이터 검증 실패 — failed checks: {failed}\n"
+                f"상세 내용: {report_path}"
+            )
+    # ─────────────────────────────────────────────────────────────────────────
 
     diagnose_dataset(all_data, args.out_dir)
 
@@ -242,6 +380,17 @@ def main():
             "best_epoch": best_epoch,
             "patience_count": patience_count,
         })
+
+        if args.use_mlflow:
+            mlflow.log_metrics(
+                {
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "val_auc": val_auc if val_auc is not None else 0.0,
+                    "val_pr_auc": val_pr_auc if val_pr_auc is not None else 0.0,
+                },
+                step=epoch,
+            )
 
         if epoch % args.print_every == 0 or epoch == 1:
             auc_text = f"{val_auc:.4f}" if val_auc is not None else "N/A"
@@ -417,6 +566,18 @@ def main():
     with open(metadata_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
 
+    if args.use_mlflow:
+        mlflow.log_metrics({
+            "test_auc": test_roc_auc if test_roc_auc is not None else 0.0,
+            "test_pr_auc": test_pr_auc if test_pr_auc is not None else 0.0,
+            "accuracy": summary["test_accuracy"],
+            "precision": summary["test_precision_bot"],
+            "recall": summary["test_recall_bot"],
+            "f1": summary["test_f1_bot"],
+            "low_risk_threshold": float(low_risk_threshold),
+            "high_risk_threshold": float(high_risk_threshold),
+        })
+
     val_threshold_path = os.path.join(args.out_dir, "threshold_metrics_validation.csv")
     test_threshold_path = os.path.join(args.out_dir, "threshold_metrics_test.csv")
     summary_path = os.path.join(args.out_dir, "final_summary.json")
@@ -474,6 +635,27 @@ def main():
     print(f"3회 Val     : {three_val_path}")
     print(f"3회 Test    : {three_test_path}")
     print(f"3회 정책    : {three_policy_path}")
+
+    if args.use_mlflow:
+        _mlflow_artifacts = [
+            history_path,
+            os.path.join(args.out_dir, "validation_report.json"),
+            os.path.join(args.out_dir, "split_distribution_report.json"),
+            summary_path,
+            model_path,
+            normalizer_path,
+            metadata_path,
+            val_threshold_path,
+            test_threshold_path,
+            three_val_path,
+            three_test_path,
+            three_policy_path,
+        ]
+        for _artifact in _mlflow_artifacts:
+            if os.path.exists(_artifact):
+                mlflow.log_artifact(_artifact)
+        mlflow.end_run()
+        print(f"\n[MLflow] Run 종료: experiment={args.mlflow_experiment_name}")
 
     plot_loss(train_losses, val_losses, args.out_dir)
     plot_score_distribution(test_labels, test_scores, args.out_dir)
