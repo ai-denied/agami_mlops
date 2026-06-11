@@ -10,13 +10,13 @@
 #
 # 빌드:
 #   docker build -f ml-pipeline/Dockerfile.flashlight \
-#                -t agami-mlops-flashlight:latest .
+#                -t agami-captcha.cloud:8443/agami/agami-mlops:latest .
 #
 # 로컬 실행 테스트:
 #   docker run --rm \
 #     -v $(pwd)/ml-pipeline/model-store:/workspace/ml-pipeline/model-store \
 #     -v $(pwd)/ml-pipeline/runs:/workspace/ml-pipeline/runs \
-#     agami-mlops-flashlight:latest \
+#     agami-captcha.cloud:8443/agami/agami-mlops:latest \
 #     python -m flashlight.scripts.run_model_update_pipeline \
 #       --version v4_20260610 \
 #       --onnx       runs/mouse_gru_final_v3_policy_tuned/mouse_gru_server_final_v2.onnx \
