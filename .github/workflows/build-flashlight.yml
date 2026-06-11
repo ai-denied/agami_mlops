@@ -12,7 +12,6 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: agami-captcha.cloud:8443
   IMAGE_NAME: agami-mlops-flashlight
   DOCKERFILE_PATH: ml-pipeline/Dockerfile.flashlight
 
@@ -40,7 +39,7 @@ jobs:
       - name: Login to Harbor Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ secrets.HARBOR_URL }}
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
@@ -51,15 +50,15 @@ jobs:
           file: ${{ env.DOCKERFILE_PATH }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_latest }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+            ${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_tag }}
+            ${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image_latest }}
+          cache-from: type=registry,ref=${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.HARBOR_URL }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
       - name: Image build summary
         run: |
           echo "✅ Docker image built and pushed successfully"
-          echo "Registry: ${{ env.REGISTRY }}"
+          echo "Registry: ${{ secrets.HARBOR_URL }}"
           echo "Image: ${{ env.IMAGE_NAME }}"
           echo "Tags:"
           echo "  - ${{ steps.tag.outputs.image_tag }}"
