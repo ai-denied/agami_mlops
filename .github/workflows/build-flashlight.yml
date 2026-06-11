@@ -30,7 +30,7 @@ jobs:
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
-          context: ./ml-pipeline
+          context: .
           file: ./ml-pipeline/Dockerfile.flashlight
           push: true
           tags: ${{ secrets.HARBOR_URL }}/agami/agami-mlops:${{ env.IMAGE_TAG }}
