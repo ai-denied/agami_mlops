@@ -1,0 +1,230 @@
+# =============================================================================
+# flashlight model-store 업데이트 파이프라인 — Argo Workflows 1차 구현
+#
+# 구조: 단일 step (run_model_update_pipeline.py 전체를 하나의 컨테이너로 실행)
+#
+# 포함 리소스:
+#   1. WorkflowTemplate  — 재사용 가능한 파이프라인 정의
+#   2. CronWorkflow      — 정기 자동 실행 (매주 월요일 03:00 KST)
+#
+# 적용 방법:
+#   kubectl apply -f flashlight-model-update-workflow.yaml
+#
+# 수동 실행:
+#   argo submit --from workflowtemplate/flashlight-model-update \
+#     -p version=v4_20260610 \
+#     -p dry_run=true
+#
+# 미구현 항목:
+#   - 캡챠 엔진 서버 연동 (captcha-engine reload API 호출)
+#   - PVC 실제 이름 확정
+#   - 컨테이너 이미지 레지스트리 경로 확정
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# [1] WorkflowTemplate — 재사용 가능한 단일 step 파이프라인
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: flashlight-model-update
+  namespace: argo
+  labels:
+    app: flashlight
+    component: model-update-pipeline
+  annotations:
+    description: "package → compare → promote 파이프라인 (1차: 단일 step)"
+    version: "v1"
+spec:
+  # rbac-flashlight-workflow.yaml에서 생성한 ServiceAccount
+  # 미지정 시 namespace의 default SA가 사용되며 권한 부족으로 실패할 수 있다.
+  serviceAccountName: flashlight-workflow-sa
+
+  # 워크플로우 수준 파라미터 기본값
+  # 실행 시 -p 플래그로 오버라이드 가능
+  arguments:
+    parameters:
+    - name: version
+      # 필수. 비워두면 스크립트 내부에서 날짜 기반 자동 생성 (v_YYYYMMDD)
+      value: ""
+
+    - name: onnx_path
+      # 학습 완료 후 생성된 ONNX 파일 경로 (data PVC 내 상대경로 또는 절대경로)
+      value: "runs/mouse_gru_latest/mouse_gru_server_final_v2.onnx"
+
+    - name: normalizer_path
+      # 학습 완료 후 생성된 joblib normalizer 경로
+      value: "runs/mouse_gru_latest/mouse_normalizer_server_final_v2.joblib"
+
+    - name: metadata_path
+      # 학습 완료 후 생성된 metadata JSON 경로
+      value: "runs/mouse_gru_latest/mouse_metadata_server_final_v2.json"
+
+    - name: dry_run
+      # "true" 이면 promote 단계를 dry-run으로만 실행 (current 미변경)
+      value: "false"
+
+  entrypoint: run-pipeline
+
+  templates:
+  # ---------------------------------------------------------------------------
+  # 메인 단계: run_model_update_pipeline.py 실행
+  # ---------------------------------------------------------------------------
+  - name: run-pipeline
+    inputs:
+      parameters:
+      - name: version
+      - name: onnx_path
+      - name: normalizer_path
+      - name: metadata_path
+      - name: dry_run
+
+    # script 템플릿: Python 코드로 CLI 인자를 조합한 뒤 파이프라인 호출
+    # container 템플릿보다 조건부 인자(--dry-run) 처리가 용이함
+    script:
+      # TODO: 실제 이미지 이름/태그로 교체 필요
+      # 이 이미지에는 ml-pipeline 코드, Python 의존성이 포함되어야 한다
+      image: agami-mlops-flashlight:latest
+      imagePullPolicy: IfNotPresent
+
+      command: [python]
+
+      # 컨테이너 내 작업 디렉토리
+      # run_model_update_pipeline.py가 상대경로로 model-store, runs를 참조하는 기준점
+      workingDir: /workspace/ml-pipeline
+
+      source: |
+        import subprocess
+        import sys
+        from datetime import datetime
+
+        # version이 비어 있으면 날짜 기반 자동 생성
+        version = "{{inputs.parameters.version}}"
+        if not version:
+            version = f"v_{datetime.now().strftime('%Y%m%d')}"
+
+        cmd = [
+            "python", "-m", "flashlight.scripts.run_model_update_pipeline",
+            "--version",    version,
+            "--onnx",       "{{inputs.parameters.onnx_path}}",
+            "--normalizer", "{{inputs.parameters.normalizer_path}}",
+            "--metadata",   "{{inputs.parameters.metadata_path}}",
+        ]
+
+        # dry_run 파라미터가 "true" 일 때만 --dry-run 플래그 추가
+        if "{{inputs.parameters.dry_run}}" == "true":
+            cmd.append("--dry-run")
+
+        print(f"[pipeline] 버전: {version}")
+        print(f"[pipeline] 실행 명령: {' '.join(cmd)}")
+        print()
+
+        result = subprocess.run(cmd, cwd="/workspace/ml-pipeline")
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      # -----------------------------------------------------------------------
+      # [필수] model-store 볼륨
+      # 역할: candidates/, current/, archive/ 읽기/쓰기
+      # PVC: flashlight-model-store-pvc (TODO: 실제 PVC 이름 확정 필요)
+      # -----------------------------------------------------------------------
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+
+      # -----------------------------------------------------------------------
+      # [필수] data 볼륨
+      # 역할:
+      #   - data/flashlight/processed/  학습 데이터 읽기
+      #   - runs/                       학습 산출물 읽기 (.onnx, .joblib, .json)
+      # PVC: flashlight-data-pvc (TODO: 실제 PVC 이름 확정 필요)
+      # -----------------------------------------------------------------------
+      - name: data
+        mountPath: /workspace/ml-pipeline/data
+
+      # -----------------------------------------------------------------------
+      # [선택] runs 볼륨 (data 볼륨과 별도 관리 시)
+      # 역할: 학습 산출물(.onnx, .joblib, .json) 읽기 전용
+      # PVC: flashlight-runs-pvc (TODO: 실제 PVC 이름 확정 필요)
+      # 현재는 data 볼륨에 runs/가 포함되어 있으므로 주석 처리
+      # -----------------------------------------------------------------------
+      # - name: runs
+      #   mountPath: /workspace/ml-pipeline/runs
+      #   readOnly: true
+
+      resources:
+        requests:
+          memory: "2Gi"
+          cpu: "1"
+        limits:
+          memory: "4Gi"
+          cpu: "2"
+        # GPU가 필요한 경우 (학습 단계 포함 시 활성화)
+        # limits:
+        #   nvidia.com/gpu: "1"
+
+    # 타임아웃: 학습 포함 기준 최대 2시간
+    # package/compare/promote만 실행 시 30분으로 축소 가능
+    timeout: "2h"
+
+    # 재시도 정책: 시스템 오류(OOM, 노드 장애)에만 자동 재시도
+    retryStrategy:
+      limit: "2"
+      retryPolicy: OnError
+
+  # ---------------------------------------------------------------------------
+  # 볼륨 정의
+  # PVC 이름은 클러스터 환경에 맞게 수정할 것
+  # ---------------------------------------------------------------------------
+  volumes:
+  # model-store PVC: ReadWriteOnce 또는 ReadWriteMany
+  # promote 단계에서 current/를 직접 수정하므로 쓰기 권한 필요
+  - name: model-store
+    persistentVolumeClaim:
+      claimName: flashlight-model-store-pvc   # TODO: 실제 PVC 이름으로 교체
+
+  # data PVC: 학습 데이터 + runs 산출물
+  # 학습 단계와 pipeline 단계가 같은 PVC를 공유할 경우 ReadWriteMany 필요
+  - name: data
+    persistentVolumeClaim:
+      claimName: flashlight-data-pvc          # TODO: 실제 PVC 이름으로 교체
+
+---
+# -----------------------------------------------------------------------------
+# [2] CronWorkflow — 매주 월요일 03:00 KST 자동 실행
+#
+# WorkflowTemplate을 참조하므로 파이프라인 로직을 중복 정의하지 않는다.
+# 파라미터 기본값은 WorkflowTemplate에 정의된 값을 사용한다.
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: flashlight-model-update-cron
+  namespace: argo
+  labels:
+    app: flashlight
+    component: model-update-cron
+spec:
+  # 매주 월요일 오전 03:00 (UTC 18:00 일요일 = KST 03:00 월요일)
+  schedule: "0 18 * * 0"
+  timezone: "UTC"
+  # 동일 워크플로우가 이미 실행 중이면 새 실행을 건너뜀
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+
+  workflowSpec:
+    # WorkflowTemplate 참조 — 파이프라인 로직은 템플릿에서 관리
+    workflowTemplateRef:
+      name: flashlight-model-update
+
+    arguments:
+      parameters:
+      # version을 비워두면 스크립트 내부에서 실행 날짜로 자동 생성
+      - name: version
+        value: ""
+      # CronWorkflow는 기본적으로 실제 실행 (dry_run=false)
+      - name: dry_run
+        value: "false"
+      # onnx_path, normalizer_path, metadata_path는 WorkflowTemplate 기본값 사용
+      # 학습이 완료된 후 최신 run 경로로 오버라이드할 것

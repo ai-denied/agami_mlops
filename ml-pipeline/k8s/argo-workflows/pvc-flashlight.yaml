@@ -1,0 +1,164 @@
+# =============================================================================
+# pvc-flashlight.yaml
+#
+# flashlight Argo Workflow에서 사용하는 볼륨 정의
+#
+# 포함 PVC:
+#   1. flashlight-model-store-pvc  — model-store 전용
+#   2. flashlight-data-pvc         — 학습 데이터 + runs 산출물 전용
+#
+# 적용 전 반드시 확인:
+#   - storageClassName을 클러스터 환경에 맞게 수정할 것
+#   - accessModes를 배포 구성(단일 노드/멀티 노드)에 맞게 검토할 것
+#   - 용량(storage)은 실제 데이터 크기에 따라 조정할 것
+#
+# 적용 명령 (준비 완료 후):
+#   kubectl apply -f pvc-flashlight.yaml -n argo
+# =============================================================================
+
+---
+# =============================================================================
+# [1] flashlight-model-store-pvc
+#
+# 용도:
+#   Argo Workflow의 package → compare → promote 파이프라인이
+#   model-store 디렉토리를 읽고 쓰는 데 사용한다.
+#
+# 마운트 경로 (컨테이너 내부):
+#   /workspace/ml-pipeline/model-store
+#
+# 저장 내용:
+#   model-store/flashlight/
+#     ├── current/     — 운영 중인 모델 파일 (mouse_gru.onnx, normalizer.json, metadata.json)
+#     ├── candidates/  — 패키징 완료 후 승격 대기 중인 후보 모델
+#     └── archive/     — 교체된 이전 모델 백업 (직전 3버전 보존 권장)
+#
+# 주의사항:
+#   - promote_model.py의 os.rename()이 원자적으로 동작하려면
+#     current/, candidates/, archive/ 가 동일 볼륨(PVC)에 있어야 한다.
+#   - 여러 Pod이 동시에 쓰는 일은 없으므로 ReadWriteOnce가 기본값이다.
+#   - 멀티 노드 환경에서 Workflow Pod가 다른 노드에 스케줄링될 경우
+#     ReadWriteMany(NFS/CSI)로 변경해야 한다.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flashlight-model-store-pvc
+  namespace: argo
+  labels:
+    app: flashlight
+    component: model-store
+spec:
+  accessModes:
+    - ReadWriteOnce
+    # 멀티 노드 환경 또는 Workflow Pod가 다른 노드에 스케줄링될 경우:
+    # - ReadWriteMany  # NFS, EFS, Longhorn, Ceph 등 CSI 드라이버 필요
+
+  resources:
+    requests:
+      storage: 5Gi
+      # 산정 근거:
+      #   - current/  :  ~50MB  (ONNX 40MB + normalizer.json + metadata.json)
+      #   - candidates/:  ~50MB × N 버전
+      #   - archive/  :  ~50MB × 3 버전 (직전 3버전 보존 권장)
+      #   → 합계 ~1GB 이하이나 여유분 포함 5Gi로 설정
+
+  # storageClassName 설정 지침:
+  #   Minikube      : "standard"  (기본값, 별도 지정 불필요)
+  #   AWS EKS       : "gp3"
+  #   GKE           : "standard"
+  #   AKS           : "default"
+  #   온프레미스/Longhorn: "longhorn"
+  #   NFS CSI       : "nfs-client"
+  # → 아래 줄의 주석을 해제하고 환경에 맞는 값으로 교체할 것
+  # storageClassName: "standard"
+
+---
+# =============================================================================
+# [2] flashlight-data-pvc
+#
+# 용도:
+#   학습 데이터와 학습 완료 후 산출물(.onnx/.joblib/.json)을
+#   Argo Workflow에서 읽기 위해 사용한다.
+#
+# 마운트 경로 (컨테이너 내부):
+#   /workspace/ml-pipeline/data   — 학습 데이터
+#   /workspace/ml-pipeline/runs   — 학습 산출물
+#   ※ 단일 PVC로 두 경로를 함께 마운트하거나, 아래 [참고]처럼 분리 가능
+#
+# 저장 내용:
+#   data/flashlight/
+#     ├── processed/   — merged_dynamic_features_sampled.json (학습 입력)
+#     ├── raw/         — 수집된 원시 마우스 로그
+#     ├── generated/   — CAPTCHA 이미지
+#     └── labels/      — 라벨 파일
+#
+#   runs/
+#     └── mouse_gru_{version}/
+#         ├── mouse_gru_server_final_v2.onnx        ← --onnx 파라미터
+#         ├── mouse_normalizer_server_final_v2.joblib ← --normalizer 파라미터
+#         └── mouse_metadata_server_final_v2.json    ← --metadata 파라미터
+#
+# 1차 파이프라인(package→compare→promote) 기준 필요 파일:
+#   runs/ 하위의 학습 산출물 3개 파일 (읽기 전용)
+#   data/ 하위 학습 데이터는 training step 분리(2차) 이후 필요
+#
+# 주의사항:
+#   - training step(train_mouse_gru.py)과 pipeline step이 같은 PVC를 사용하는 경우
+#     동시 접근이 발생할 수 있으므로 ReadWriteMany를 권장한다.
+#   - 1차 파이프라인(pipeline only)에서는 ReadWriteOnce + 읽기 전용 마운트로도 충분하다.
+#   - runs/와 data/를 별도 PVC로 분리하면 용량 관리와 접근 제어가 명확해진다.
+#     (분리 예시는 파일 하단 [참고] 섹션 참조)
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flashlight-data-pvc
+  namespace: argo
+  labels:
+    app: flashlight
+    component: data
+spec:
+  accessModes:
+    - ReadWriteOnce
+    # training + pipeline을 동일 PVC로 동시 실행하는 경우:
+    # - ReadWriteMany  # NFS, EFS, Longhorn, Ceph 등 CSI 드라이버 필요
+
+  resources:
+    requests:
+      storage: 20Gi
+      # 산정 근거 (현재 실측 기준):
+      #   data/flashlight/raw/       ~422MB
+      #   data/flashlight/processed/ ~308MB
+      #   data/flashlight/generated/ ~140MB
+      #   data/flashlight/labels/      ~4MB
+      #   runs/ (여러 학습 run)        ~수백MB
+      #   → 합계 ~2GB, 향후 데이터 증가 여유분 포함 20Gi로 설정
+
+  # storageClassName: "standard"   # 환경에 맞게 주석 해제 후 수정
+
+# =============================================================================
+# [참고] runs/를 별도 PVC로 분리하는 경우 (선택적)
+#
+# runs/ 를 data/ 와 분리하면:
+#   - training step: flashlight-data-pvc (읽기/쓰기)
+#   - pipeline step: flashlight-runs-pvc (읽기 전용)
+# 으로 접근 권한을 명확히 분리할 수 있다.
+#
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: flashlight-runs-pvc
+#   namespace: argo
+#   labels:
+#     app: flashlight
+#     component: runs
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 5Gi
+#   # storageClassName: "standard"
+# =============================================================================
