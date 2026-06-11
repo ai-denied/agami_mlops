@@ -29,3 +29,6 @@ venv/
 
 # os
 .DS_Store
+
+# virtual environments
+venv-mlflow/
