@@ -40,12 +40,12 @@ RUN apt-get update \
 WORKDIR /workspace/ml-pipeline
 
 # 의존성 먼저 설치 (레이어 캐시 최적화)
-COPY ml-pipeline/requirements-flashlight.txt ./requirements-flashlight.txt
+COPY requirements-flashlight.txt ./requirements-flashlight.txt
 RUN pip install --no-cache-dir -r requirements-flashlight.txt
 
 # flashlight 패키지 코드 복사
 # data/, runs/, model-store/ 는 PVC로 마운트하므로 이미지에 포함하지 않는다.
-COPY ml-pipeline/flashlight/ ./flashlight/
+COPY flashlight/ ./flashlight/
 
 # PYTHONPATH 설정
 # python -m flashlight.scripts.* 실행 시 /workspace/ml-pipeline 이 sys.path에 있어야 한다.
