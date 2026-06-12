@@ -1,0 +1,21 @@
+{
+  "score_name": "bot_risk_score",
+  "single_attempt": {
+    "low_risk": "score < 0.05",
+    "suspicious": "0.05 <= score < 0.6",
+    "high_risk": "score >= 0.6"
+  },
+  "three_attempt_policy": {
+    "attempts": 3,
+    "decision_order": [
+      "block if high_risk_count >= block_high_risk_count",
+      "block if suspicious_count >= block_suspicious_count",
+      "block if total_score >= block_total_score",
+      "challenge_again if suspicious_count >= 1",
+      "allow otherwise"
+    ],
+    "block_suspicious_count": 2,
+    "block_high_risk_count": 1,
+    "block_total_score": 0.25
+  }
+}
