@@ -1,0 +1,10 @@
+sample_id,label,reason,frame_count,valid_count
+S064_sess2_t1_il2_dev2,0,insufficient_frames,2,2
+S004_spoof_sess2_t3_il4_dev1,1,insufficient_frames,1,1
+S004_spoof_sess2_t3_il4_dev2,1,insufficient_frames,2,2
+S012_spoof_sess2_t3_il4_dev2,1,insufficient_frames,2,2
+S013_spoof_sess2_t3_il4_dev1,1,insufficient_frames,1,1
+S015_spoof_sess2_t3_il4_dev2,1,insufficient_frames,2,2
+S018_spoof_sess2_t3_il4_dev1,1,insufficient_frames,1,1
+S019_spoof_sess2_t3_il4_dev1,1,insufficient_frames,1,1
+S019_spoof_sess2_t3_il4_dev2,1,insufficient_frames,2,2
