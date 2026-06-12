@@ -1,0 +1,46 @@
+# =============================================================================
+# Dockerfile.api
+#
+# 용도  : flashlight 추론 API 서버 이미지
+# 대상  : Kubernetes Deployment (flashlight-inference-api)
+#
+# 포함  : flashlight/ 패키지 코드, API 의존성 (FastAPI + onnxruntime)
+# 미포함: model-store/ → 런타임에 PVC 마운트 또는 FLASHLIGHT_MODEL_DIR로 지정
+#
+# 빌드:
+#   docker build -f ml-pipeline/Dockerfile.api \
+#                -t agami-captcha.cloud:8443/agami/flashlight-api:latest .
+#
+# 로컬 실행 테스트:
+#   docker run --rm -p 8080:8080 \
+#     -v $(pwd)/ml-pipeline/model-store:/workspace/ml-pipeline/model-store \
+#     agami-captcha.cloud:8443/agami/flashlight-api:latest
+# =============================================================================
+
+FROM python:3.10-slim
+
+# libgomp: scikit-learn/numpy OpenMP 의존성
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# __file__ 기준 경로 계산을 위해 ml-pipeline/ 을 WORKDIR로 고정
+WORKDIR /workspace/ml-pipeline
+
+# 의존성 레이어 캐시 최적화
+COPY requirements-flashlight.txt ./
+RUN pip install --no-cache-dir -r requirements-flashlight.txt
+
+# flashlight 패키지 코드 복사 (data/, runs/, model-store/ 는 PVC 마운트)
+COPY flashlight/ ./flashlight/
+
+ENV PYTHONPATH=/workspace/ml-pipeline
+ENV FLASHLIGHT_MODEL_DIR=/workspace/ml-pipeline/model-store/flashlight/current
+
+EXPOSE 8080
+
+# --workers 1: onnxruntime 세션은 프로세스 공유 불가 — 필요 시 replica scale-out 사용
+CMD ["uvicorn", "flashlight.api.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--workers", "1"]

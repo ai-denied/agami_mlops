@@ -1,0 +1,40 @@
+# =============================================================================
+# flashlight pipeline (package → compare → promote) 실행에 필요한 의존성
+#
+# 용도별 구분:
+#   [core]     run_model_update_pipeline.py 실행에 반드시 필요
+#   [validate] package 단계의 ONNX 검증(validate())에 필요
+#   [training] train_mouse_gru.py 실행 시 추가 필요 (1차 파이프라인에서 미사용)
+#
+# 제외:
+#   - facial_recognition 관련 의존성 (mediapipe, opencv-python 등)은 포함하지 않는다.
+#   - torch는 학습(training) 단계를 컨테이너에 포함할 경우에만 활성화한다.
+# =============================================================================
+
+# [core] 수치 연산
+numpy>=1.24.0
+
+# [core] joblib normalizer 로드 (.joblib 파일 역직렬화)
+joblib>=1.3.0
+
+# [core] MouseFeatureNormalizer 내부에서 StandardScaler 사용
+#        joblib.load() 시 클래스 정의를 찾아야 하므로 반드시 필요
+scikit-learn>=1.3.0
+
+# [validate] package 단계의 ONNX 모델 검증 및 추론
+#            validate() 내부에서 lazy import하므로 미설치 시 검증만 skip됨
+#            실제 운영 이미지에서는 포함 권장
+onnxruntime>=1.15.0
+
+# [api] FastAPI 추론 서버 (flashlight/api/)
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+
+# =============================================================================
+# [training] 아래 패키지는 학습 단계(train_mouse_gru.py)를 컨테이너에 포함할 때만 필요
+#            1차 파이프라인(package → compare → promote)에서는 사용하지 않는다.
+#            2차 구현에서 training step을 분리한 이미지를 별도로 빌드할 때 활성화한다.
+# =============================================================================
+# torch>=2.0.0               # 모델 학습 (GPU 이미지: torch==2.x.x+cu118 등으로 교체)
+# pandas>=2.0.0              # 학습 결과 CSV 저장

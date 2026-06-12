@@ -1,0 +1,171 @@
+# =============================================================================
+# rbac-flashlight-workflow.yaml
+#
+# flashlight Argo Workflow 실행에 필요한 최소 RBAC 리소스
+#
+# 포함 리소스 (적용 순서):
+#   1. ServiceAccount  — flashlight-workflow-sa
+#   2. Role            — flashlight-workflow-role
+#   3. RoleBinding     — flashlight-workflow-rolebinding
+#
+# 적용 명령:
+#   kubectl apply -f rbac-flashlight-workflow.yaml -n argo
+#
+# ⚠️  운영 환경 주의사항:
+#   - 이 파일은 최소 권한 원칙(PoLP)으로 작성된 초안이다.
+#   - 실제 운영 클러스터 적용 전 DevOps 팀원이 아래 항목을 반드시 검토해야 한다.
+#     1. namespace 범위가 적절한지 (namespace-scoped Role vs ClusterRole)
+#     2. 각 verb가 실제로 필요한지 (특히 patch, delete)
+#     3. 회사 보안 정책(PSP/OPA/Kyverno 등) 준수 여부
+#     4. RBAC 변경 이력 관리 및 감사 로그 설정
+# =============================================================================
+
+---
+# =============================================================================
+# [1] ServiceAccount
+#
+# 역할:
+#   Argo Workflow Pod(컨테이너 실행 단위)에 부착되는 계정.
+#   Argo executor가 이 SA의 토큰으로 Argo controller와 통신하고
+#   task 결과를 보고한다.
+#
+# 사용 위치:
+#   flashlight-model-update-workflow.yaml의 spec.serviceAccountName
+#
+# 참고:
+#   serviceAccountName을 지정하지 않으면 namespace의 default SA가 사용되며,
+#   권한 부족으로 Workflow가 Error 상태가 될 수 있다.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flashlight-workflow-sa
+  namespace: argo           # TODO: 실제 Argo Workflows namespace로 교체
+  labels:
+    app: flashlight
+    component: workflow-sa
+
+---
+# =============================================================================
+# [2] Role
+#
+# 권한 부여 원칙:
+#   Argo Workflow executor 동작에 필요한 최소 권한만 포함한다.
+#
+# 권한 그룹별 설명:
+#
+#   [A] core API — Pod 관련
+#       Argo executor는 자신이 실행 중인 Pod의 상태를 조회하고,
+#       script/container template의 완료 상태를 확인하기 위해 필요하다.
+#       - pods       : get/list/watch — Pod 상태 조회
+#                      patch          — Argo가 Pod annotation으로 상태 기록 시 필요
+#       - pods/log   : get            — 단계별 로그 수집 (Argo UI 및 argo logs 명령)
+#
+#   [B] Argo argoproj.io API — Workflow 관련
+#       - workflowtaskresults : create/patch — executor가 각 step 결과를 controller에 보고 (필수)
+#       - workflows           : get/list/watch — Workflow 상태 조회 (argo get/list/watch 명령)
+#       - workflowtemplates   : get/list       — WorkflowTemplate 참조 실행 시 필요
+#
+#   [C] (선택) configmaps
+#       Argo 일부 버전에서 workflow 설정을 ConfigMap으로 관리하는 경우 필요.
+#       기본 설정에서는 불필요하므로 주석 처리.
+#
+# ⚠️  운영 환경 검토 포인트:
+#   - pods patch: Argo executor가 Pod annotation 작성에 사용하지만,
+#     보안 정책에 따라 제거 후 동작 여부를 테스트해야 할 수 있다.
+#   - workflows create: Argo submit 권한. CI/CD 파이프라인에서 직접 submit하지 않으면 제거 가능.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flashlight-workflow-role
+  namespace: argo           # TODO: 실제 Argo Workflows namespace로 교체
+  labels:
+    app: flashlight
+    component: workflow-rbac
+
+rules:
+
+  # ── [A] Pod 접근 ─────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs:
+      - get
+      - list
+      - watch
+      - patch        # Argo executor가 Pod annotation으로 step 상태를 기록할 때 사용
+
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs:
+      - get
+      - list
+      - watch
+
+  # ── [B-1] Argo task 결과 보고 (필수) ─────────────────────────────────────
+  # executor가 각 step의 output/exit code를 controller에 전달하기 위해 필수.
+  # 이 권한이 없으면 Workflow가 Pending 또는 Error 상태로 멈춘다.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs:
+      - create
+      - patch
+
+  # ── [B-2] Workflow 상태 조회 ──────────────────────────────────────────────
+  # argo get / argo list / argo watch 명령, Argo UI 조회에 필요.
+  # Workflow를 직접 submit하지 않는다면 create 불필요.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs:
+      - get
+      - list
+      - watch
+      # - create   # argo submit으로 직접 Workflow 생성 시 필요, 불필요하면 제거
+
+  # ── [B-3] WorkflowTemplate 참조 ───────────────────────────────────────────
+  # CronWorkflow가 WorkflowTemplate을 참조할 때 SA가 템플릿을 읽어야 한다.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtemplates"]
+    verbs:
+      - get
+      - list
+
+  # ── [C] ConfigMap (선택적) ────────────────────────────────────────────────
+  # Argo Workflows 설정을 ConfigMap으로 관리하는 경우 필요.
+  # 기본 설치 구성에서는 대부분 불필요하다.
+  # - apiGroups: [""]
+  #   resources: ["configmaps"]
+  #   verbs: ["get", "watch", "list"]
+
+---
+# =============================================================================
+# [3] RoleBinding
+#
+# ServiceAccount(flashlight-workflow-sa)와
+# Role(flashlight-workflow-role)을 연결한다.
+#
+# scope:
+#   namespace-scoped — argo namespace 내에서만 유효.
+#   다른 namespace의 리소스에는 접근할 수 없다.
+#
+# ⚠️  운영 환경 검토 포인트:
+#   - Workflow가 여러 namespace에 걸쳐 리소스를 생성해야 하는 경우
+#     ClusterRole + ClusterRoleBinding으로 격상이 필요하다.
+#     단, ClusterRole은 클러스터 전체 권한이므로 신중하게 검토해야 한다.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flashlight-workflow-rolebinding
+  namespace: argo           # TODO: 실제 Argo Workflows namespace로 교체
+  labels:
+    app: flashlight
+    component: workflow-rbac
+subjects:
+  - kind: ServiceAccount
+    name: flashlight-workflow-sa
+    namespace: argo         # TODO: ServiceAccount와 동일 namespace로 교체
+roleRef:
+  kind: Role
+  name: flashlight-workflow-role
+  apiGroup: rbac.authorization.k8s.io

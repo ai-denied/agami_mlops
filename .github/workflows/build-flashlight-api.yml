@@ -1,0 +1,119 @@
+# =============================================================================
+# build-flashlight-api.yml
+#
+# 트리거:
+#   - ml-pipeline/ 하위 코드 변경 push (main 브랜치)
+#   - 수동 실행 (workflow_dispatch)
+#
+# 동작:
+#   1. ml-pipeline/Dockerfile.api 로 이미지 빌드
+#   2. Harbor 레지스트리 (agami-captcha.cloud:8443) 에 push
+#   3. (선택) K8s Deployment rolling restart
+#
+# 필요한 GitHub Secrets:
+#   HARBOR_USERNAME   — Harbor 로그인 ID
+#   HARBOR_PASSWORD   — Harbor 로그인 비밀번호 (또는 Robot Token)
+#   KUBECONFIG_DATA   — kubectl 접근용 kubeconfig (base64 인코딩)
+#                       cat ~/.kube/config | base64 -w0
+#
+# Runner 옵션:
+#   A) GitHub 호스팅 runner (ubuntu-latest) — Docker 기본 제공
+#      → Harbor가 public IP로 접근 가능해야 한다
+#   B) self-hosted runner (GPU 서버에 등록)  ← 권장
+#      → Harbor가 private network 내에 있어도 동작
+#      → GPU 서버에서 runner 설치: https://github.com/ai-denied/agami_mlops/settings/actions/runners
+# =============================================================================
+
+name: Build & Push flashlight-api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ml-pipeline/**"
+      - ".github/workflows/build-flashlight-api.yml"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "이미지 태그 (기본: latest)"
+        required: false
+        default: "latest"
+
+env:
+  REGISTRY: agami-captcha.cloud:8443
+  IMAGE_NAME: agami/flashlight-api
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    # B) self-hosted runner 사용 시 아래 줄로 교체
+    # runs-on: [self-hosted, gpu-server]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            # git short SHA를 태그로 사용 (latest와 함께 push)
+            TAG="${{ github.sha }}"
+            TAG="${TAG:0:8}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "full_image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ml-pipeline/Dockerfile.api
+          push: true
+          tags: |
+            ${{ steps.tag.outputs.full_image }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # 레이어 캐시 — GitHub Actions cache 활용
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo "Pushed ${{ steps.tag.outputs.full_image }}"
+
+  # ── (선택) Deployment rolling restart ──────────────────────────────────────
+  # Harbor push 성공 후 K8s Deployment를 자동으로 재시작한다.
+  # KUBECONFIG_DATA secret이 설정된 경우에만 활성화한다.
+  deploy:
+    name: Rolling Restart Deployment
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # KUBECONFIG_DATA secret이 없으면 이 job을 주석 처리한다
+    if: ${{ secrets.KUBECONFIG_DATA != '' }}
+
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Rolling restart
+        run: |
+          kubectl rollout restart deployment/flashlight-inference-api -n argo
+          kubectl rollout status deployment/flashlight-inference-api -n argo --timeout=120s

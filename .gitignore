@@ -1,0 +1,43 @@
+# data
+data/
+model-store/
+runs/
+outputs/
+
+# model files
+*.pkl
+*.pth
+*.pt
+*.joblib
+*.onnx
+
+# mlflow
+mlflow.db
+mlartifacts/
+
+# binary data / feature files
+*.npz
+*.zip
+*.db
+
+# logs
+*.log
+
+# cache
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# env
+.env
+venv/
+.venv/
+
+# vscode
+.vscode/
+
+# os
+.DS_Store
+
+# virtual environments
+venv-mlflow/
