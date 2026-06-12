@@ -17,10 +17,10 @@
 #   docker push agami-captcha.cloud:8443/agami/flashlight-api:latest
 #
 # 적용:
-#   kubectl apply -f manifests/flashlight-inference-api.yaml -n argo
+#   kubectl apply -f manifests/flashlight-inference-api.yaml -n agami
 #
 # 엔드포인트 확인:
-#   kubectl port-forward svc/flashlight-inference-api-svc 8080:80 -n argo
+#   kubectl port-forward svc/flashlight-inference-api-svc 8080:80 -n agami
 #   curl http://localhost:8080/health
 # =============================================================================
 
@@ -29,7 +29,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: flashlight-inference-api
-  namespace: argo
+  namespace: agami
   labels:
     app: flashlight-inference-api
     component: inference
@@ -147,7 +147,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: flashlight-inference-api-svc
-  namespace: argo
+  namespace: agami
   labels:
     app: flashlight-inference-api
     component: inference
@@ -172,7 +172,7 @@ spec:
 # kind: HorizontalPodAutoscaler
 # metadata:
 #   name: flashlight-inference-api-hpa
-#   namespace: argo
+#   namespace: agami
 # spec:
 #   scaleTargetRef:
 #     apiVersion: apps/v1
