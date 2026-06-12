@@ -55,8 +55,12 @@ def select_seq_features(feature_names: List[str], mode: str) -> List[int]:
     names = [str(x) for x in feature_names]
     mode = mode.lower()
 
+    # abs 그룹: 절대좌표(v1) 또는 상대좌표(v2, nose_x_rel 등) 모두 지원
+    abs_names = {"nose_x", "nose_y", "cx", "cy",
+                 "nose_x_rel", "nose_y_rel", "cx_rel", "cy_rel"}
+
     groups = {
-        "abs": {"nose_x", "nose_y", "cx", "cy"},
+        "abs": abs_names,
         "motion": {
             "nose_dx", "nose_dy", "center_dx", "center_dy", "nose_speed",
             "ear_velocity", "mar_velocity", "yaw_velocity", "pitch_velocity", "roll_velocity"
@@ -126,7 +130,11 @@ def metadata_frame(data: Dict[str, np.ndarray]) -> pd.DataFrame:
         "attack_type": to_str_array(data.get("attack_types", np.array([""] * n))),
         "subject_id": to_str_array(data.get("subject_ids", np.array([""] * n))),
     })
-    df["source_group"] = df["sample_id"].map(infer_source_group)
+    # source_groups가 NPZ에 저장돼 있으면 그대로 사용, 없으면 sample_id에서 추론
+    if "source_groups" in data:
+        df["source_group"] = to_str_array(data["source_groups"])
+    else:
+        df["source_group"] = df["sample_id"].map(infer_source_group)
     df["root_id"] = df["sample_id"].map(infer_root_id)
 
     for key in ["seq_lengths", "valid_frame_counts", "face_detect_rates", "sessions", "illuminations", "devices"]:
