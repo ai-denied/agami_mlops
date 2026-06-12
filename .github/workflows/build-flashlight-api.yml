@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "ml-pipeline/**"
+      - "manifests/**"
       - ".github/workflows/build-flashlight-api.yml"
 
   workflow_dispatch:
