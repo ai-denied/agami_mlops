@@ -52,8 +52,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ml-pipeline/Dockerfile.api
+          context: ./ml-pipeline
+          file: ./ml-pipeline/Dockerfile.api
           push: true
           tags: |
             ${{ steps.tag.outputs.full_image }}
