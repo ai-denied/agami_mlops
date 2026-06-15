@@ -206,7 +206,8 @@ metadata:
     component: model-update-cron
 spec:
   # 매주 월요일 오전 03:00 (UTC 18:00 일요일 = KST 03:00 월요일)
-  schedule: "0 18 * * 0"
+  schedules:
+  - "0 18 * * 0"
   timezone: "UTC"
   # 동일 워크플로우가 이미 실행 중이면 새 실행을 건너뜀
   concurrencyPolicy: Forbid
