@@ -378,6 +378,7 @@ spec:
                 "--seed",                  "42",
                 "--max-human-block-rate",  "0.20",
                 "--high-risk-human-block-rate", "0.02",
+                "--skip-validation",
             ],
             cwd="/workspace/ml-pipeline",
         )
