@@ -140,7 +140,7 @@ spec:
       # PVC: flashlight-data-pvc (TODO: 실제 PVC 이름 확정 필요)
       # -----------------------------------------------------------------------
       - name: data
-        mountPath: /workspace/ml-pipeline/data
+        mountPath: /workspace/ml-pipeline/runs
 
       # -----------------------------------------------------------------------
       # [선택] runs 볼륨 (data 볼륨과 별도 관리 시)
