@@ -69,7 +69,7 @@ spec:
       # raw mouse_logs/, processed/, merged JSON 이 위치하는 디렉토리
 
     - name: runs-base-dir
-      value: "/mnt/flashlight-data/runs"
+      value: "/mnt/flashlight-data"
       # 학습 산출물(.onnx/.joblib/.json)이 저장될 부모 디렉토리
 
     - name: min-auc
@@ -350,8 +350,18 @@ spec:
         print(f"[train] version  : {version}")
         print(f"[train] data     : {merged}")
         print(f"[train] out-dir  : {out_dir}")
-        print()
 
+        # 학습 데이터가 없으면 skip (이미 학습된 모델이 out_dir에 있으면 재사용)
+        if not os.path.exists(merged):
+            onnx = os.path.join(out_dir, "mouse_gru_server_final_v2.onnx")
+            if os.path.exists(onnx):
+                print(f"[train] merged JSON 없음 → 기존 학습 결과 재사용: {out_dir}")
+                sys.exit(0)
+            else:
+                print(f"[train] merged JSON 없고 기존 모델도 없음: {merged}", file=sys.stderr)
+                sys.exit(1)
+
+        print()
         result = subprocess.run(
             [
                 sys.executable, "-m", "flashlight.scripts.train_mouse_gru",
@@ -727,7 +737,7 @@ spec:
       - name: data-base-dir
         value: "/mnt/flashlight-data/data/flashlight"
       - name: runs-base-dir
-        value: "/mnt/flashlight-data/runs"
+        value: "/mnt/flashlight-data"
       - name: min-auc
         value: "0.80"
       - name: max-human-block-rate

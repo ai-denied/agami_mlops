@@ -36,8 +36,15 @@ def main() -> None:
 
     data_dir = os.path.abspath(args.data_dir)
     if not os.path.isdir(data_dir):
-        print(f"[ERROR] --data-dir 가 존재하지 않습니다: {data_dir}", file=sys.stderr)
-        sys.exit(1)
+        print(f"[SKIP] --data-dir 가 존재하지 않습니다: {data_dir}")
+        print("[SKIP] 원시 데이터가 아직 수집되지 않았습니다. 전처리를 건너뜁니다.")
+        sys.exit(0)
+
+    human_dir = os.path.join(data_dir, "mouse_logs", "human")
+    if not os.path.isdir(human_dir):
+        print(f"[SKIP] mouse_logs/human 디렉토리 없음: {human_dir}")
+        print("[SKIP] 수집된 원시 로그가 없습니다. 전처리를 건너뜁니다.")
+        sys.exit(0)
 
     # preprocessing 스크립트 디렉토리: flashlight/preprocessing/
     preprocessing_dir = os.path.normpath(
