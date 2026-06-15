@@ -130,6 +130,17 @@ rules:
       - get
       - list
 
+  # ── [D] Deployment 롤아웃 (restart-inference-api step) ───────────────────
+  # kubectl rollout restart deployment/flashlight-inference-api -n agami
+  # 내부적으로 Deployment 의 spec.template.metadata.annotations 를 patch 한다.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+
   # ── [C] ConfigMap (선택적) ────────────────────────────────────────────────
   # Argo Workflows 설정을 ConfigMap으로 관리하는 경우 필요.
   # 기본 설치 구성에서는 대부분 불필요하다.

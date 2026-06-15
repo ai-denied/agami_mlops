@@ -1,0 +1,56 @@
+name: Build & Push flashlight-training
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ml-pipeline/flashlight/**"
+      - "ml-pipeline/Dockerfile.training"
+      - "ml-pipeline/requirements-training.txt"
+      - ".github/workflows/build-flashlight-training.yml"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (default: latest)"
+        required: false
+        default: "latest"
+
+env:
+  REGISTRY: agami-captcha.cloud:8443
+  IMAGE_NAME: agami/agami-mlops-training
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${GITHUB_SHA::8}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "full_image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./ml-pipeline
+          file: ./ml-pipeline/Dockerfile.training
+          push: true
+          tags: |
+            ${{ steps.tag.outputs.full_image }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

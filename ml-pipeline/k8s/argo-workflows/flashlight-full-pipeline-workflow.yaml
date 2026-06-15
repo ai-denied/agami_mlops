@@ -1,0 +1,734 @@
+# =============================================================================
+# flashlight MLOps 2차 자동화 파이프라인
+#
+# 9단계 전체 파이프라인:
+#   1. validate-data        기존 학습 데이터(merged JSON) 품질 검증
+#   2. preprocess           원시 마우스 로그 → 피처 추출 + 병합
+#   3. train-model          GRU 모델 학습 (PyTorch, CPU)
+#   4. evaluate-model       학습 결과 지표 확인 및 최소 기준 검사
+#   5. package-model        ONNX + normalizer + metadata → candidates/
+#   6. compare-model        candidates vs current 성능 비교 (PASS/FAIL)
+#   7. promote-model        PASS 시 candidates → current 승격
+#   8. restart-inference-api kubectl rollout restart + status 대기
+#   9. smoke-test           /health + /api/v1/predict curl 확인
+#
+# 볼륨 레이아웃:
+#   flashlight-data-pvc → /mnt/flashlight-data
+#     /mnt/flashlight-data/data/flashlight/mouse_logs/human/   ← 원시 인간 로그
+#     /mnt/flashlight-data/data/flashlight/mouse_logs/bot/     ← 원시 봇 로그
+#     /mnt/flashlight-data/data/flashlight/processed/dynamic/  ← 추출 피처
+#     /mnt/flashlight-data/data/flashlight/merged_dynamic_features_sampled.json
+#     /mnt/flashlight-data/runs/{version}/                     ← 학습 산출물
+#
+#   flashlight-model-store-pvc → /workspace/ml-pipeline/model-store
+#     /workspace/ml-pipeline/model-store/flashlight/current/
+#     /workspace/ml-pipeline/model-store/flashlight/candidates/{version}/
+#     /workspace/ml-pipeline/model-store/flashlight/archive/
+#
+# 이미지:
+#   pipeline steps : agami-captcha.cloud:8443/agami/agami-mlops:latest
+#   train step     : agami-captcha.cloud:8443/agami/agami-mlops-training:latest
+#   restart step   : bitnami/kubectl:latest
+#   smoke-test step: curlimages/curl:latest
+#
+# 적용:
+#   kubectl apply -f flashlight-full-pipeline-workflow.yaml -n agami
+#
+# 수동 실행:
+#   argo submit --from workflowtemplate/flashlight-full-pipeline -n agami
+#   argo submit --from workflowtemplate/flashlight-full-pipeline -n agami \
+#     -p version=v4_20260615
+# =============================================================================
+
+---
+# =============================================================================
+# [1] WorkflowTemplate — 9단계 전체 파이프라인
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: flashlight-full-pipeline
+  namespace: agami
+  labels:
+    app: flashlight
+    component: full-pipeline
+  annotations:
+    description: "validate→preprocess→train→evaluate→package→compare→promote→restart→smoke-test"
+    version: "v2"
+spec:
+  serviceAccountName: flashlight-workflow-sa
+
+  arguments:
+    parameters:
+    - name: version
+      value: ""
+      # 비워두면 init-version 단계에서 v4_YYYYMMDD_HHMMSS 로 자동 생성
+
+    - name: data-base-dir
+      value: "/mnt/flashlight-data/data/flashlight"
+      # raw mouse_logs/, processed/, merged JSON 이 위치하는 디렉토리
+
+    - name: runs-base-dir
+      value: "/mnt/flashlight-data/runs"
+      # 학습 산출물(.onnx/.joblib/.json)이 저장될 부모 디렉토리
+
+    - name: min-auc
+      value: "0.80"
+      # evaluate-model 단계: 이 값 미만이면 파이프라인 중단
+
+    - name: max-human-block-rate
+      value: "0.30"
+      # evaluate-model 단계: 이 값 초과이면 파이프라인 중단
+
+  entrypoint: full-pipeline
+
+  # ---------------------------------------------------------------------------
+  # 볼륨 정의 (모든 step이 공유)
+  # ---------------------------------------------------------------------------
+  volumes:
+  - name: model-store
+    persistentVolumeClaim:
+      claimName: flashlight-model-store-pvc
+
+  - name: flashlight-data
+    persistentVolumeClaim:
+      claimName: flashlight-data-pvc
+
+  templates:
+
+  # ===========================================================================
+  # 메인: 9단계 순차 실행
+  # ===========================================================================
+  - name: full-pipeline
+    steps:
+
+    # ── 1. 버전 초기화 ────────────────────────────────────────────────────────
+    - - name: init-version
+        template: t-init-version
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+
+    # ── 2. 데이터 검증 ────────────────────────────────────────────────────────
+    - - name: validate-data
+        template: t-validate-data
+        arguments:
+          parameters:
+          - name: version
+            value: "{{steps.init-version.outputs.parameters.version}}"
+          - name: data-base-dir
+            value: "{{workflow.parameters.data-base-dir}}"
+          - name: runs-base-dir
+            value: "{{workflow.parameters.runs-base-dir}}"
+
+    # ── 3. 전처리 (피처 추출 + 병합) ─────────────────────────────────────────
+    - - name: preprocess
+        template: t-preprocess
+        arguments:
+          parameters:
+          - name: data-base-dir
+            value: "{{workflow.parameters.data-base-dir}}"
+
+    # ── 4. 모델 학습 ──────────────────────────────────────────────────────────
+    - - name: train-model
+        template: t-train-model
+        arguments:
+          parameters:
+          - name: version
+            value: "{{steps.init-version.outputs.parameters.version}}"
+          - name: data-base-dir
+            value: "{{workflow.parameters.data-base-dir}}"
+          - name: runs-base-dir
+            value: "{{workflow.parameters.runs-base-dir}}"
+
+    # ── 5. 성능 평가 ──────────────────────────────────────────────────────────
+    - - name: evaluate-model
+        template: t-evaluate-model
+        arguments:
+          parameters:
+          - name: version
+            value: "{{steps.init-version.outputs.parameters.version}}"
+          - name: runs-base-dir
+            value: "{{workflow.parameters.runs-base-dir}}"
+          - name: min-auc
+            value: "{{workflow.parameters.min-auc}}"
+          - name: max-human-block-rate
+            value: "{{workflow.parameters.max-human-block-rate}}"
+
+    # ── 6. 모델 패키징 ────────────────────────────────────────────────────────
+    - - name: package-model
+        template: t-package-model
+        arguments:
+          parameters:
+          - name: version
+            value: "{{steps.init-version.outputs.parameters.version}}"
+          - name: runs-base-dir
+            value: "{{workflow.parameters.runs-base-dir}}"
+
+    # ── 7. 현재 모델과 비교 ───────────────────────────────────────────────────
+    - - name: compare-model
+        template: t-compare-model
+        continueOn:
+          failed: true
+        arguments:
+          parameters:
+          - name: version
+            value: "{{steps.init-version.outputs.parameters.version}}"
+
+    # ── 8. 승격 (compare PASS 시만) ───────────────────────────────────────────
+    - - name: promote-model
+        template: t-promote-model
+        when: "{{steps.compare-model.status}} == Succeeded"
+        arguments:
+          parameters:
+          - name: version
+            value: "{{steps.init-version.outputs.parameters.version}}"
+
+    # ── 9. 추론 API 재시작 (compare PASS 시만) ────────────────────────────────
+    - - name: restart-inference-api
+        template: t-restart-inference-api
+        when: "{{steps.compare-model.status}} == Succeeded"
+
+    # ── 10. 스모크 테스트 (compare PASS 시만) ────────────────────────────────
+    - - name: smoke-test
+        template: t-smoke-test
+        when: "{{steps.compare-model.status}} == Succeeded"
+
+  # ===========================================================================
+  # [Step 1] 버전 초기화
+  # outputs.parameters.version = 최종 version 문자열 (e.g. "v4_20260615_030000")
+  # outputs.result 은 stdout 전체를 캡처하므로 파일 기반 outputs.parameters 사용
+  # ===========================================================================
+  - name: t-init-version
+    inputs:
+      parameters:
+      - name: version
+    outputs:
+      parameters:
+      - name: version
+        valueFrom:
+          path: /tmp/version.txt
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      source: |
+        from datetime import datetime
+        version = "{{inputs.parameters.version}}".strip()
+        if not version:
+            version = f"v4_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        print(f"[init] version: {version}")
+        with open("/tmp/version.txt", "w") as f:
+            f.write(version)
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+
+  # ===========================================================================
+  # [Step 2] 데이터 검증
+  # 기존 merged JSON 의 품질을 확인한다.
+  # 검증 실패 시 파이프라인 중단 (전처리 전에 기준선 데이터가 유효한지 확인)
+  # ===========================================================================
+  - name: t-validate-data
+    inputs:
+      parameters:
+      - name: version
+      - name: data-base-dir
+      - name: runs-base-dir
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import subprocess, sys, os
+
+        data_dir  = "{{inputs.parameters.data-base-dir}}"
+        runs_dir  = "{{inputs.parameters.runs-base-dir}}"
+        version   = "{{inputs.parameters.version}}"
+        merged    = os.path.join(data_dir, "merged_dynamic_features_sampled.json")
+        out_dir   = os.path.join(runs_dir, version, "validation")
+
+        if not os.path.exists(merged):
+            print(f"[validate] merged JSON 없음: {merged}", file=sys.stderr)
+            print("[validate] 첫 실행이면 preprocess 단계가 merged JSON 을 생성합니다.")
+            print("[validate] 데이터 없음 → 검증 건너뜀")
+            sys.exit(0)
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.validation.validate_dataset",
+                "--data",    merged,
+                "--out-dir", out_dir,
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+      - name: flashlight-data
+        mountPath: /mnt/flashlight-data
+
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "512Mi"
+        limits:
+          cpu: "500m"
+          memory: "1Gi"
+
+  # ===========================================================================
+  # [Step 3] 전처리
+  # 원시 마우스 로그 → 피처 추출 → 병합 JSON
+  # ===========================================================================
+  - name: t-preprocess
+    inputs:
+      parameters:
+      - name: data-base-dir
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import subprocess, sys
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.scripts.preprocess_pipeline",
+                "--data-dir", "{{inputs.parameters.data-base-dir}}",
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      - name: flashlight-data
+        mountPath: /mnt/flashlight-data
+
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+
+    timeout: "1h"
+
+  # ===========================================================================
+  # [Step 4] 모델 학습
+  # train_mouse_gru.py 실행 — PyTorch 전용 이미지 사용
+  # ===========================================================================
+  - name: t-train-model
+    inputs:
+      parameters:
+      - name: version
+      - name: data-base-dir
+      - name: runs-base-dir
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops-training:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import subprocess, sys, os
+
+        version   = "{{inputs.parameters.version}}"
+        data_dir  = "{{inputs.parameters.data-base-dir}}"
+        runs_dir  = "{{inputs.parameters.runs-base-dir}}"
+        merged    = os.path.join(data_dir, "merged_dynamic_features_sampled.json")
+        out_dir   = os.path.join(runs_dir, version)
+
+        print(f"[train] version  : {version}")
+        print(f"[train] data     : {merged}")
+        print(f"[train] out-dir  : {out_dir}")
+        print()
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.scripts.train_mouse_gru",
+                "--data",                  merged,
+                "--out-dir",               out_dir,
+                "--epochs",                "30",
+                "--batch-size",            "128",
+                "--hidden",                "32",
+                "--layers",                "1",
+                "--dropout",               "0.4",
+                "--lr",                    "0.0003",
+                "--patience",              "5",
+                "--monitor",               "val_auc",
+                "--seed",                  "42",
+                "--max-human-block-rate",  "0.20",
+                "--high-risk-human-block-rate", "0.02",
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      - name: flashlight-data
+        mountPath: /mnt/flashlight-data
+
+      resources:
+        requests:
+          cpu: "2"
+          memory: "4Gi"
+        limits:
+          cpu: "4"
+          memory: "8Gi"
+        # GPU 환경에서 활성화:
+        # limits:
+        #   nvidia.com/gpu: "1"
+
+    timeout: "3h"
+    retryStrategy:
+      limit: "1"
+      retryPolicy: OnError
+
+  # ===========================================================================
+  # [Step 5] 성능 평가
+  # 학습 결과 지표를 출력하고 최소 기준 미달 시 파이프라인 중단
+  # ===========================================================================
+  - name: t-evaluate-model
+    inputs:
+      parameters:
+      - name: version
+      - name: runs-base-dir
+      - name: min-auc
+      - name: max-human-block-rate
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import json, os, sys
+
+        version  = "{{inputs.parameters.version}}"
+        runs_dir = "{{inputs.parameters.runs-base-dir}}"
+        min_auc  = float("{{inputs.parameters.min-auc}}")
+        max_hbr  = float("{{inputs.parameters.max-human-block-rate}}")
+
+        meta_path = os.path.join(runs_dir, version, "mouse_metadata_server_final_v2.json")
+
+        if not os.path.exists(meta_path):
+            print(f"[evaluate] metadata 파일 없음: {meta_path}", file=sys.stderr)
+            sys.exit(1)
+
+        with open(meta_path) as f:
+            meta = json.load(f)
+
+        perf = meta.get("performance", {})
+
+        auc   = perf.get("test_roc_auc", 0.0)
+        f1    = perf.get("test_f1_bot", 0.0)
+        hbr   = perf.get("test_human_block_rate", 1.0)
+        bmiss = perf.get("test_bot_miss_rate", 1.0)
+
+        print("=" * 50)
+        print("  EVALUATE — 학습 결과 지표")
+        print("=" * 50)
+        print(f"  버전               : {version}")
+        print(f"  ROC-AUC (test)     : {auc:.4f}  (기준: >= {min_auc})")
+        print(f"  F1-bot (test)      : {f1:.4f}")
+        print(f"  Human block rate   : {hbr:.4f}  (기준: <= {max_hbr})")
+        print(f"  Bot miss rate      : {bmiss:.4f}")
+        print("=" * 50)
+
+        failures = []
+        if auc < min_auc:
+            failures.append(f"ROC-AUC {auc:.4f} < 최소 기준 {min_auc}")
+        if hbr > max_hbr:
+            failures.append(f"human_block_rate {hbr:.4f} > 최대 허용 {max_hbr}")
+
+        if failures:
+            print("\n[FAIL] 품질 기준 미달:")
+            for f_msg in failures:
+                print(f"  - {f_msg}")
+            sys.exit(1)
+
+        print("\n[PASS] 모든 품질 기준 통과")
+
+      volumeMounts:
+      - name: flashlight-data
+        mountPath: /mnt/flashlight-data
+
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "200m"
+          memory: "512Mi"
+
+  # ===========================================================================
+  # [Step 6] 모델 패키징
+  # ONNX + normalizer + metadata → model-store/flashlight/candidates/{version}/
+  # ===========================================================================
+  - name: t-package-model
+    inputs:
+      parameters:
+      - name: version
+      - name: runs-base-dir
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import subprocess, sys, os
+
+        version  = "{{inputs.parameters.version}}"
+        runs_dir = "{{inputs.parameters.runs-base-dir}}"
+        run_out  = os.path.join(runs_dir, version)
+
+        onnx_path       = os.path.join(run_out, "mouse_gru_server_final_v2.onnx")
+        normalizer_path = os.path.join(run_out, "mouse_normalizer_server_final_v2.joblib")
+        metadata_path   = os.path.join(run_out, "mouse_metadata_server_final_v2.json")
+
+        for path, label in [
+            (onnx_path,       "ONNX"),
+            (normalizer_path, "normalizer"),
+            (metadata_path,   "metadata"),
+        ]:
+            if not os.path.exists(path):
+                print(f"[package] {label} 파일 없음: {path}", file=sys.stderr)
+                sys.exit(1)
+
+        print(f"[package] version : {version}")
+        print(f"[package] onnx    : {onnx_path}")
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.scripts.package_for_captcha_engine",
+                "--onnx",       onnx_path,
+                "--normalizer", normalizer_path,
+                "--metadata",   metadata_path,
+                "--version",    version,
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+      - name: flashlight-data
+        mountPath: /mnt/flashlight-data
+
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "512Mi"
+        limits:
+          cpu: "500m"
+          memory: "1Gi"
+
+  # ===========================================================================
+  # [Step 7] 성능 비교
+  # candidates/{version} vs current/ — PASS(exit 0) / FAIL(exit 1)
+  # continueOn.failed: true 로 FAIL 이어도 후속 단계에서 when 으로 분기
+  # ===========================================================================
+  - name: t-compare-model
+    inputs:
+      parameters:
+      - name: version
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import subprocess, sys
+
+        version = "{{inputs.parameters.version}}"
+        print(f"[compare] version: {version}")
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.scripts.compare_candidate",
+                "--version", version,
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        print(f"[compare] 결과: {'PASS' if result.returncode == 0 else 'FAIL'}")
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "200m"
+          memory: "512Mi"
+
+  # ===========================================================================
+  # [Step 8] 모델 승격
+  # candidates/{version} → current/ (compare PASS 시에만 실행)
+  # ===========================================================================
+  - name: t-promote-model
+    inputs:
+      parameters:
+      - name: version
+    script:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: Always
+      command: [python]
+      workingDir: /workspace/ml-pipeline
+      source: |
+        import subprocess, sys
+
+        version = "{{inputs.parameters.version}}"
+        print(f"[promote] version: {version}")
+
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.scripts.promote_model",
+                "--version", version,
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        sys.exit(result.returncode)
+
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "200m"
+          memory: "512Mi"
+
+  # ===========================================================================
+  # [Step 9] 추론 API 재시작
+  # kubectl rollout restart deployment/flashlight-inference-api -n agami
+  # SA 에 apps/deployments patch 권한이 있어야 한다 (rbac-flashlight-workflow.yaml)
+  # ===========================================================================
+  - name: t-restart-inference-api
+    script:
+      image: bitnami/kubectl:latest
+      imagePullPolicy: IfNotPresent
+      command: [sh]
+      source: |
+        set -e
+        echo "[restart] flashlight-inference-api 롤아웃 재시작..."
+        kubectl rollout restart deployment/flashlight-inference-api -n agami
+        echo "[restart] 롤아웃 완료 대기 (timeout: 120s)..."
+        kubectl rollout status deployment/flashlight-inference-api -n agami --timeout=120s
+        echo "[restart] 완료"
+
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+
+    timeout: "3m"
+
+  # ===========================================================================
+  # [Step 10] 스모크 테스트
+  # /health 와 /api/v1/predict 를 curl 로 확인
+  # coordinate_mode: "pixel" 사용 (위젯 실제 좌표 기준)
+  # ===========================================================================
+  - name: t-smoke-test
+    script:
+      image: curlimages/curl:latest
+      imagePullPolicy: IfNotPresent
+      command: [sh]
+      source: |
+        #!/bin/sh
+        set -e
+
+        BASE_URL="http://flashlight-inference-api-svc.agami.svc.cluster.local"
+
+        echo "[smoke] === /health ==="
+        curl -sf --max-time 10 "${BASE_URL}/health"
+        echo ""
+
+        echo "[smoke] === /api/v1/predict ==="
+        curl -sf --max-time 10 \
+          -X POST "${BASE_URL}/api/v1/predict" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "coordinate_mode": "pixel",
+            "events": [
+              {"x": 80,  "y": 300, "t": 0},
+              {"x": 95,  "y": 290, "t": 50},
+              {"x": 115, "y": 275, "t": 110},
+              {"x": 138, "y": 258, "t": 175},
+              {"x": 162, "y": 240, "t": 245},
+              {"x": 185, "y": 222, "t": 320},
+              {"x": 208, "y": 205, "t": 400},
+              {"x": 228, "y": 190, "t": 485},
+              {"x": 245, "y": 178, "t": 575},
+              {"x": 260, "y": 168, "t": 670}
+            ]
+          }'
+        echo ""
+
+        echo "[smoke] 모든 엔드포인트 정상"
+
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "64Mi"
+
+    timeout: "2m"
+
+---
+# =============================================================================
+# [2] CronWorkflow — 매주 월요일 03:00 KST 자동 실행
+# (UTC 18:00 일요일 = KST 03:00 월요일)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: flashlight-full-pipeline-cron
+  namespace: agami
+  labels:
+    app: flashlight
+    component: full-pipeline-cron
+spec:
+  schedules:
+  - "0 18 * * 0"
+  timezone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 3
+
+  workflowSpec:
+    workflowTemplateRef:
+      name: flashlight-full-pipeline
+
+    arguments:
+      parameters:
+      - name: version
+        value: ""    # 자동 생성: v4_YYYYMMDD_HHMMSS
+      - name: data-base-dir
+        value: "/mnt/flashlight-data/data/flashlight"
+      - name: runs-base-dir
+        value: "/mnt/flashlight-data/runs"
+      - name: min-auc
+        value: "0.80"
+      - name: max-human-block-rate
+        value: "0.30"
