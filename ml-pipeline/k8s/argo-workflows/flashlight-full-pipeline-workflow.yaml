@@ -436,7 +436,7 @@ spec:
         with open(meta_path) as f:
             meta = json.load(f)
 
-        perf = meta.get("performance", {})
+        perf = meta.get("summary", {})
 
         auc   = perf.get("test_roc_auc", 0.0)
         f1    = perf.get("test_f1_bot", 0.0)
