@@ -86,7 +86,7 @@ spec:
       # TODO: 실제 이미지 이름/태그로 교체 필요
       # 이 이미지에는 ml-pipeline 코드, Python 의존성이 포함되어야 한다
       image: agami-captcha.cloud:8443/agami/agami-mlops:latest
-      imagePullPolicy: IfNotPresent
+      imagePullPolicy: Always
 
       command: [python]
 
