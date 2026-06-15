@@ -4,7 +4,7 @@
 # 9단계 전체 파이프라인:
 #   1. validate-data        기존 학습 데이터(merged JSON) 품질 검증
 #   2. preprocess           원시 마우스 로그 → 피처 추출 + 병합
-#   3. train-model          GRU 모델 학습 (PyTorch, GPU — Tesla T4)
+#   3. train-model          GRU 모델 학습 (PyTorch, CPU)
 #   4. evaluate-model       학습 결과 지표 확인 및 최소 기준 검사
 #   5. package-model        ONNX + normalizer + metadata → candidates/
 #   6. compare-model        candidates vs current 성능 비교 (PASS/FAIL)
@@ -338,8 +338,6 @@ spec:
       - name: version
       - name: data-base-dir
       - name: runs-base-dir
-    nodeSelector:
-      zone: gpu
     script:
       image: agami-captcha.cloud:8443/agami/agami-mlops-training:latest
       imagePullPolicy: Always
@@ -402,7 +400,6 @@ spec:
         limits:
           cpu: "4"
           memory: "8Gi"
-          nvidia.com/gpu: "1"
 
     timeout: "3h"
     retryStrategy:

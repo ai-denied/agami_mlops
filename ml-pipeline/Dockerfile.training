@@ -1,19 +1,15 @@
 # =============================================================================
 # Dockerfile.training
 #
-# 용도  : flashlight GRU 모델 학습 전용 이미지 (GPU)
+# 용도  : flashlight GRU 모델 학습 전용 이미지
 # 대상  : Argo Workflows train-model step (train_mouse_gru.py)
 # 이미지: agami-captcha.cloud:8443/agami/agami-mlops-training:latest
 #
 # pipeline 이미지(Dockerfile.flashlight)와 분리하는 이유:
-#   - PyTorch (~2 GB) 를 pipeline 이미지에 포함하면 package/compare/promote
+#   - PyTorch (~1 GB) 를 pipeline 이미지에 포함하면 package/compare/promote
 #     단계의 이미지 풀 시간이 불필요하게 증가한다.
 #
-# GPU: Tesla T4, CUDA 12.4 (Driver 550.54.14)
-#      PyTorch cu124 wheel 이 CUDA runtime 라이브러리를 자체 번들링하므로
-#      python:3.10-slim 기반에서도 GPU 가속이 동작한다.
-#
-# 포함  : flashlight/ 패키지 코드, torch(CUDA 12.4), 학습 의존성
+# 포함  : flashlight/ 패키지 코드, torch(CPU), 학습 의존성
 # 미포함: data/, runs/, model-store/  → 런타임에 PVC 로 마운트
 #
 # 빌드:
@@ -21,8 +17,9 @@
 #                -t agami-captcha.cloud:8443/agami/agami-mlops-training:latest \
 #                ./ml-pipeline
 #
-# CPU 환경으로 전환하려면:
-#   --index-url https://download.pytorch.org/whl/cpu 로 교체
+# GPU 환경으로 전환하려면:
+#   --index-url https://download.pytorch.org/whl/cu124 로 교체
+#   workflow nodeSelector zone=gpu + nvidia.com/gpu limit 활성화
 # =============================================================================
 
 FROM python:3.10-slim
@@ -40,11 +37,11 @@ WORKDIR /workspace/ml-pipeline
 COPY requirements-training.txt ./requirements-training.txt
 RUN pip install --no-cache-dir -r requirements-training.txt
 
-# 2단계: PyTorch GPU 빌드 — CUDA 12.4 (Tesla T4 기준)
-# CPU 환경으로 전환: --index-url https://download.pytorch.org/whl/cpu
+# 2단계: PyTorch CPU 빌드 (별도 레이어 — index-url 필요)
+# GPU 환경: --index-url https://download.pytorch.org/whl/cu124 로 교체
 RUN pip install --no-cache-dir \
-    "torch>=2.3.0" \
-    --index-url https://download.pytorch.org/whl/cu124
+    "torch>=2.0.0" \
+    --index-url https://download.pytorch.org/whl/cpu
 
 # flashlight 패키지 코드
 # data/, runs/, model-store/ 는 PVC 로 마운트하므로 이미지에 포함하지 않음
