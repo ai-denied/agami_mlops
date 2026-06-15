@@ -40,7 +40,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: flashlight-workflow-sa
-  namespace: argo           # TODO: 실제 Argo Workflows namespace로 교체
+  namespace: agami
   labels:
     app: flashlight
     component: workflow-sa
@@ -79,7 +79,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: flashlight-workflow-role
-  namespace: argo           # TODO: 실제 Argo Workflows namespace로 교체
+  namespace: agami
   labels:
     app: flashlight
     component: workflow-rbac
@@ -157,14 +157,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: flashlight-workflow-rolebinding
-  namespace: argo           # TODO: 실제 Argo Workflows namespace로 교체
+  namespace: agami
   labels:
     app: flashlight
     component: workflow-rbac
 subjects:
   - kind: ServiceAccount
     name: flashlight-workflow-sa
-    namespace: argo         # TODO: ServiceAccount와 동일 namespace로 교체
+    namespace: agami
 roleRef:
   kind: Role
   name: flashlight-workflow-role

@@ -29,7 +29,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
   name: flashlight-model-update
-  namespace: argo
+  namespace: agami
   labels:
     app: flashlight
     component: model-update-pipeline
@@ -200,7 +200,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
   name: flashlight-model-update-cron
-  namespace: argo
+  namespace: agami
   labels:
     app: flashlight
     component: model-update-cron
