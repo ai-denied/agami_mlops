@@ -14,7 +14,9 @@ ml-pipeline/venv
 ml-pipeline/venv-mlflow
 
 # 학습 데이터 및 원시 데이터 (PVC로 마운트)
-data
+# 주의: "data" 로 쓰면 flashlight/data/ Python 모듈도 제외되므로 경로를 명시
+ml-pipeline/data
+workspace/data
 
 # 학습 산출물 (PVC로 마운트)
 ml-pipeline/runs
