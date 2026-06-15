@@ -44,6 +44,22 @@ from datetime import datetime
 import joblib
 import numpy as np
 
+# joblib.load()가 MouseFeatureNormalizer를 역직렬화할 때 클래스를 찾아야 함.
+# flashlight.data.normalizer가 없을 경우 stub으로 대체해 deserialization이 깨지지 않게 함.
+try:
+    from flashlight.data.normalizer import MouseFeatureNormalizer  # noqa: F401
+except ImportError:
+    import sys
+    import types
+    _stub_mod = types.ModuleType("flashlight.data.normalizer")
+    class _NormStub:
+        pass
+    _NormStub.__name__ = "MouseFeatureNormalizer"
+    _stub_mod.MouseFeatureNormalizer = _NormStub
+    if "flashlight.data" not in sys.modules:
+        sys.modules["flashlight.data"] = types.ModuleType("flashlight.data")
+    sys.modules["flashlight.data.normalizer"] = _stub_mod
+
 OUTPUT_ONNX_NAME       = "mouse_gru.onnx"
 OUTPUT_NORMALIZER_NAME = "normalizer.json"
 OUTPUT_METADATA_NAME   = "metadata.json"
