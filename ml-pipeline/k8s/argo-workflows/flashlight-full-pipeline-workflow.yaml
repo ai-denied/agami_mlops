@@ -64,10 +64,6 @@ spec:
     secondsAfterSuccess: 3600
     secondsAfterFailure: 3600
 
-  # 워크플로우 완료 후 pod 삭제 (실행 중에는 로그 확인 가능)
-  podGC:
-    strategy: OnWorkflowCompletion
-
   arguments:
     parameters:
     - name: version
