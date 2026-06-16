@@ -67,7 +67,7 @@ spec:
       # ── 컨테이너 ────────────────────────────────────────────────────────────
       containers:
         - name: flashlight-api
-          image: agami-captcha.cloud:8443/agami/flashlight-api:3e542f75
+          image: agami-captcha.cloud:8443/agami/flashlight-api:268dd66c
           imagePullPolicy: Always
 
           ports:
