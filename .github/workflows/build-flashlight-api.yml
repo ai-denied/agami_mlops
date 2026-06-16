@@ -5,24 +5,29 @@ on:
     branches: [main]
     paths:
       - "ml-pipeline/**"
-      - "manifests/**"
       - ".github/workflows/build-flashlight-api.yml"
+      # manifests/** 제외 — CI가 매니페스트를 커밋할 때 무한 루프 방지
 
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Image tag"
+        description: "Image tag (비워두면 SHA 자동 사용)"
         required: false
-        default: "latest"
+        default: ""
 
 env:
   REGISTRY: agami-captcha.cloud:8443
   IMAGE_NAME: agami/flashlight-api
+  MANIFEST_FILE: manifests/flashlight-inference-api.yaml
 
 jobs:
   build-and-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
+
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      full_image: ${{ steps.tag.outputs.full_image }}
 
     steps:
       - name: Checkout
@@ -31,12 +36,11 @@ jobs:
       - name: Set image tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
             TAG="${{ github.event.inputs.image_tag }}"
           else
             TAG="${GITHUB_SHA::8}"
           fi
-
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "full_image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> "$GITHUB_OUTPUT"
 
@@ -62,45 +66,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Print pushed image
-        run: |
-          echo "Pushed image:"
-          echo "${{ steps.tag.outputs.full_image }}"
-          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-
-  deploy:
-    name: Rolling Restart on K8s
+  update-manifest:
+    name: Update Image Tag in Manifest
     needs: build-and-push
     runs-on: ubuntu-latest
-    # main 브랜치 push 시에만 실제 배포 (workflow_dispatch는 빌드만)
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 매니페스트 커밋을 push하려면 write 권한 토큰 필요
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure kubeconfig
-        env:
-          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
+      - name: Update image tag in manifest
         run: |
-          mkdir -p ~/.kube
-          printf '%s' "${KUBECONFIG_DATA}" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-          kubectl cluster-info
+          NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.tag }}"
+          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${NEW_IMAGE}|g" \
+            ${{ env.MANIFEST_FILE }}
+          echo "Updated image to: ${NEW_IMAGE}"
+          grep "image:" ${{ env.MANIFEST_FILE }}
 
-      - name: Rolling restart
+      - name: Commit and push manifest
         run: |
-          kubectl rollout restart deployment/flashlight-inference-api -n argo
-          kubectl rollout status  deployment/flashlight-inference-api -n argo --timeout=120s
-
-      - name: Verify health
-        run: |
-          POD=$(kubectl get pod -n argo -l app=flashlight-inference-api \
-                  -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -n argo "$POD" -- \
-            curl -sf http://localhost:8080/health | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          print('status:', d['status'], '/ model_version:', d['model_version'])
-          sys.exit(0 if d['model_loaded'] else 1)
-          "
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ env.MANIFEST_FILE }}
+          git diff --staged --quiet && echo "변경 없음, skip" && exit 0
+          git commit -m "chore: update flashlight-api image → ${{ needs.build-and-push.outputs.tag }} [skip ci]"
+          git push
