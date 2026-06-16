@@ -1,23 +1,9 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Flashlight Dashboard API
-
-precompute_dashboard.py 가 생성한 dashboard_cache.json 을 읽어
-집계 지표를 제공한다.
-
-엔드포인트:
-  GET /api/v1/dashboard/summary          — 전체 통계 + 파이 차트 데이터
-  GET /api/v1/dashboard/attack_types     — 공격 유형 Top N
-  GET /api/v1/dashboard/risk_distribution — risk_band 분포
-  GET /api/v1/dashboard/sessions         — 세션 목록 (페이지네이션 + 필터)
-  POST /api/v1/dashboard/reload          — 캐시 재로드
-"""
-
 from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -138,6 +124,13 @@ class SessionsResponse(BaseModel):
     limit: int
     sessions: List[SessionItem]
 
+class TrafficItem(BaseModel):
+    time: str
+    success: int
+    attack: int
+
+class TrafficResponse(BaseModel):
+    traffic: List[TrafficItem]
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -159,24 +152,24 @@ def get_summary():
     bot_missed = sum(1 for r in sessions if r["source_type"] == "bot" and not r["is_blocked"])
 
     pie = [
-        PieSlice(label="Human Passed",     count=human_pass,        ratio=round(human_pass / total, 4)),
-        PieSlice(label="Human Suspicious", count=human_suspicious,   ratio=round(human_suspicious / total, 4)),
-        PieSlice(label="Human Blocked",    count=human_blocked,      ratio=round(human_blocked / total, 4)),
-        PieSlice(label="Bot Detected",     count=bot_detected,       ratio=round(bot_detected / total, 4)),
-        PieSlice(label="Bot Missed",       count=bot_missed,         ratio=round(bot_missed / total, 4)),
+        PieSlice(label="Human Passed",     count=human_pass,        ratio=round(human_pass / total, 4) if total else 0),
+        PieSlice(label="Human Suspicious", count=human_suspicious,   ratio=round(human_suspicious / total, 4) if total else 0),
+        PieSlice(label="Human Blocked",    count=human_blocked,      ratio=round(human_blocked / total, 4) if total else 0),
+        PieSlice(label="Bot Detected",     count=bot_detected,       ratio=round(bot_detected / total, 4) if total else 0),
+        PieSlice(label="Bot Missed",       count=bot_missed,         ratio=round(bot_missed / total, 4) if total else 0),
     ]
 
     return SummaryResponse(
-        generated_at=cache["generated_at"],
-        model_version=cache["model_version"],
+        generated_at=cache.get("generated_at", ""),
+        model_version=cache.get("model_version", ""),
         total_sessions=total,
-        human_total=s["human_total"],
-        bot_total=s["bot_total"],
-        human_pass_rate=s["human_pass_rate"],
-        human_suspicious_rate=s["human_suspicious_rate"],
-        human_block_rate=s["human_block_rate"],
-        bot_detect_rate=s["bot_detect_rate"],
-        bot_miss_rate=s["bot_miss_rate"],
+        human_total=s.get("human_total", 0),
+        bot_total=s.get("bot_total", 0),
+        human_pass_rate=s.get("human_pass_rate", 0.0),
+        human_suspicious_rate=s.get("human_suspicious_rate", 0.0),
+        human_block_rate=s.get("human_block_rate", 0.0),
+        bot_detect_rate=s.get("bot_detect_rate", 0.0),
+        bot_miss_rate=s.get("bot_miss_rate", 0.0),
         pie_chart=pie,
     )
 
@@ -188,12 +181,12 @@ def get_summary():
 )
 def get_attack_types(top_n: int = Query(default=5, ge=1, le=20)):
     cache = _load_cache()
-    raw_counts: Dict[str, Dict[str, int]] = cache["summary"]["attack_type_counts"]
+    raw_counts: Dict[str, Dict[str, int]] = cache.get("summary", {}).get("attack_type_counts", {})
 
     items: List[AttackTypeItem] = []
     for key, val in raw_counts.items():
-        cnt = val["count"]
-        blocked = val["blocked"]
+        cnt = val.get("count", 0)
+        blocked = val.get("blocked", 0)
         items.append(
             AttackTypeItem(
                 type_key=key,
@@ -207,7 +200,7 @@ def get_attack_types(top_n: int = Query(default=5, ge=1, le=20)):
     items.sort(key=lambda x: x.count, reverse=True)
 
     return AttackTypesResponse(
-        total_bot_sessions=cache["summary"]["bot_total"],
+        total_bot_sessions=cache.get("summary", {}).get("bot_total", 0),
         top_types=items[:top_n],
     )
 
@@ -219,8 +212,8 @@ def get_attack_types(top_n: int = Query(default=5, ge=1, le=20)):
 )
 def get_risk_distribution():
     cache = _load_cache()
-    counts: Dict[str, int] = cache["summary"]["risk_band_counts"]
-    total = cache["summary"]["total_sessions"]
+    counts: Dict[str, int] = cache.get("summary", {}).get("risk_band_counts", {})
+    total = cache.get("summary", {}).get("total_sessions", 0)
 
     bands = [
         RiskBandItem(
@@ -249,16 +242,16 @@ def get_sessions(
     is_blocked: Optional[bool] = Query(default=None),
 ):
     cache = _load_cache()
-    sessions = cache["sessions"]
+    sessions = cache.get("sessions", [])
 
     if source_type is not None:
-        sessions = [s for s in sessions if s["source_type"] == source_type]
+        sessions = [s for s in sessions if s.get("source_type") == source_type]
     if bot_type is not None:
         sessions = [s for s in sessions if s.get("bot_type") == bot_type]
     if risk_band is not None:
-        sessions = [s for s in sessions if s["risk_band"] == risk_band]
+        sessions = [s for s in sessions if s.get("risk_band") == risk_band]
     if is_blocked is not None:
-        sessions = [s for s in sessions if s["is_blocked"] == is_blocked]
+        sessions = [s for s in sessions if s.get("is_blocked") == is_blocked]
 
     total = len(sessions)
     page = sessions[offset : offset + limit]
@@ -270,11 +263,51 @@ def get_sessions(
         sessions=[
             SessionItem(
                 **s,
-                risk_band_display=RISK_BAND_DISPLAY.get(s["risk_band"], s["risk_band"]),
+                risk_band_display=RISK_BAND_DISPLAY.get(s.get("risk_band", ""), s.get("risk_band", "")),
             )
             for s in page
         ],
     )
+
+
+@router.get(
+    "/traffic",
+    response_model=TrafficResponse,
+    summary="시간대별 트래픽 (정상/차단) 통계",
+)
+def get_traffic():
+    cache = _load_cache()
+    sessions = cache.get("sessions", [])
+
+    traffic_dict = {}
+
+    for s in sessions:
+        filename = s.get("file", "")
+        is_blocked = s.get("is_blocked", False)
+
+        # 파일명에서 13자리 타임스탬프 추출 (예: ..._1777424592586.json)
+        match = re.search(r'_(\d{13})\.json', filename)
+        if match:
+            ts_ms = int(match.group(1))
+            # 밀리초를 초 단위로 변환하여 시간대(HH:00) 텍스트 생성
+            dt = datetime.fromtimestamp(ts_ms / 1000.0)
+            hour_str = dt.strftime('%H:00')
+        else:
+            hour_str = "00:00"
+
+        if hour_str not in traffic_dict:
+            traffic_dict[hour_str] = {"time": hour_str, "success": 0, "attack": 0}
+
+        # JSON에 있는 진짜 True / False 값을 기준으로 카운트
+        if is_blocked:
+            traffic_dict[hour_str]["attack"] += 1
+        else:
+            traffic_dict[hour_str]["success"] += 1
+
+    # 시간을 기준으로 오름차순 정렬
+    sorted_traffic = sorted(list(traffic_dict.values()), key=lambda x: x["time"])
+    
+    return TrafficResponse(traffic=sorted_traffic)
 
 
 @router.post(
