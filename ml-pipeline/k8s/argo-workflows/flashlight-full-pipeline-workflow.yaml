@@ -58,6 +58,16 @@ metadata:
 spec:
   serviceAccountName: flashlight-workflow-sa
 
+  # 완료/실패 워크플로우를 1시간 뒤 자동 삭제
+  ttlStrategy:
+    secondsAfterCompletion: 3600
+    secondsAfterSuccess: 3600
+    secondsAfterFailure: 3600
+
+  # 완료된 pod는 즉시 삭제 (로그는 Argo UI에서 보존됨)
+  podGC:
+    strategy: OnPodCompletion
+
   arguments:
     parameters:
     - name: version
