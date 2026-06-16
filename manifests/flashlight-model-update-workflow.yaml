@@ -65,9 +65,36 @@ spec:
       # "true" 이면 promote 단계를 dry-run으로만 실행 (current 미변경)
       value: "false"
 
-  entrypoint: run-pipeline
+  entrypoint: pipeline-dag
 
   templates:
+  # ---------------------------------------------------------------------------
+  # DAG: 모델 업데이트 → 대시보드 캐시 재생성 순서로 실행
+  # ---------------------------------------------------------------------------
+  - name: pipeline-dag
+    dag:
+      tasks:
+      - name: update-model
+        template: run-pipeline
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: onnx_path
+            value: "{{workflow.parameters.onnx_path}}"
+          - name: normalizer_path
+            value: "{{workflow.parameters.normalizer_path}}"
+          - name: metadata_path
+            value: "{{workflow.parameters.metadata_path}}"
+          - name: dry_run
+            value: "{{workflow.parameters.dry_run}}"
+
+      # 모델 업데이트 완료 후 dashboard_cache.json 재생성
+      - name: precompute-dashboard
+        template: precompute-dashboard
+        dependencies: [update-model]
+        when: "{{workflow.parameters.dry_run}} != true"
+
   # ---------------------------------------------------------------------------
   # 메인 단계: run_model_update_pipeline.py 실행
   # ---------------------------------------------------------------------------
@@ -163,13 +190,49 @@ spec:
         # limits:
         #   nvidia.com/gpu: "1"
 
-    # 타임아웃: 학습 포함 기준 최대 2시간
-    # package/compare/promote만 실행 시 30분으로 축소 가능
     timeout: "2h"
 
-    # 재시도 정책: 시스템 오류(OOM, 노드 장애)에만 자동 재시도
     retryStrategy:
       limit: "2"
+      retryPolicy: OnError
+
+  # ---------------------------------------------------------------------------
+  # 대시보드 캐시 재생성: precompute_dashboard.py 실행
+  # 모델 업데이트 완료 후 dashboard_cache.json 을 model-store PVC 에 기록
+  # ---------------------------------------------------------------------------
+  - name: precompute-dashboard
+    container:
+      image: agami-captcha.cloud:8443/agami/flashlight-api:latest
+      imagePullPolicy: IfNotPresent
+      workingDir: /workspace/ml-pipeline
+      command:
+        - python
+        - -m
+        - flashlight.scripts.precompute_dashboard
+        - --data-dir
+        - /workspace/ml-pipeline/data/flashlight
+        - --out
+        - /workspace/ml-pipeline/model-store/flashlight/dashboard_cache.json
+      env:
+        - name: FLASHLIGHT_MODEL_DIR
+          value: /workspace/ml-pipeline/model-store/flashlight/current
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      volumeMounts:
+        - name: model-store
+          mountPath: /workspace/ml-pipeline/model-store
+        - name: data
+          mountPath: /workspace/ml-pipeline/data
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "500m"
+        limits:
+          memory: "2Gi"
+          cpu: "1"
+    timeout: "30m"
+    retryStrategy:
+      limit: "1"
       retryPolicy: OnError
 
   # ---------------------------------------------------------------------------

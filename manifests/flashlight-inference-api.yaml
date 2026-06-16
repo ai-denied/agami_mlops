@@ -81,20 +81,22 @@ spec:
               value: /workspace/ml-pipeline/model-store/flashlight/current
             - name: PYTHONUNBUFFERED
               value: "1"
+            # dashboard_cache.json 위치: model-store PVC 내 flashlight/ 디렉토리
+            # precompute_dashboard.py 가 같은 경로에 파일을 기록한다
+            - name: DASHBOARD_CACHE_PATH
+              value: /workspace/ml-pipeline/model-store/flashlight/dashboard_cache.json
 
           # ── 리소스 ────────────────────────────────────────────────────────
-          # CPU: onnxruntime는 기본적으로 단일 스레드 추론 → 500m으로 충분
-          # Memory: GRU 모델 (~40MB) + Python 런타임 + 요청 처리 여유분
+          # Memory: 기존 512Mi + dashboard_cache.json (~30MB) 여유분 추가
           resources:
             requests:
               cpu: "250m"
-              memory: "256Mi"
+              memory: "384Mi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "640Mi"
 
           # ── Readiness Probe ────────────────────────────────────────────────
-          # 모델 로드 완료 후에만 트래픽 수신 (startup 지연 고려)
           readinessProbe:
             httpGet:
               path: /health
@@ -105,7 +107,6 @@ spec:
             successThreshold: 1
 
           # ── Liveness Probe ─────────────────────────────────────────────────
-          # 응답 불가 상태 감지 후 Pod 재시작
           livenessProbe:
             httpGet:
               path: /health

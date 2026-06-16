@@ -67,3 +67,37 @@ jobs:
           echo "Pushed image:"
           echo "${{ steps.tag.outputs.full_image }}"
           echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+  deploy:
+    name: Rolling Restart on K8s
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # main 브랜치 push 시에만 실제 배포 (workflow_dispatch는 빌드만)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Rolling restart
+        run: |
+          kubectl rollout restart deployment/flashlight-inference-api -n argo
+          kubectl rollout status  deployment/flashlight-inference-api -n argo --timeout=120s
+
+      - name: Verify health
+        run: |
+          POD=$(kubectl get pod -n argo -l app=flashlight-inference-api \
+                  -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec -n argo "$POD" -- \
+            curl -sf http://localhost:8080/health | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print('status:', d['status'], '/ model_version:', d['model_version'])
+          sys.exit(0 if d['model_loaded'] else 1)
+          "
