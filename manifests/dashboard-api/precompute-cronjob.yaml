@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dashboard-precompute
+  namespace: agami
+  labels:
+    app: dashboard-api
+    component: precompute
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: dashboard-api
+            component: precompute
+        spec:
+          restartPolicy: Never
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+
+          containers:
+            - name: precompute
+              image: agami-captcha.cloud:8443/agami/flashlight-api:9c2a6197
+              imagePullPolicy: Always
+
+              command:
+                - python
+                - -m
+                - flashlight.scripts.precompute_dashboard
+                - --data-dir
+                - /data/data/flashlight
+                - --out
+                - /model-store/flashlight/dashboard_cache.json
+                - --model-dir
+                - /model-store/flashlight/current
+
+              env:
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+                - name: PYTHONPATH
+                  value: /workspace/ml-pipeline
+
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "2000m"
+                  memory: "2Gi"
+
+              volumeMounts:
+                - name: model-store
+                  mountPath: /model-store
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+
+          volumes:
+            - name: model-store
+              persistentVolumeClaim:
+                claimName: flashlight-model-store-pvc
+            - name: data
+              persistentVolumeClaim:
+                claimName: flashlight-data-pvc
