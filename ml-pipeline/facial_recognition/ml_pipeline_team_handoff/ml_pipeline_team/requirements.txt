@@ -1,0 +1,18 @@
+numpy<2.0
+pandas
+scikit-learn
+joblib
+matplotlib
+torch
+
+# Website/runtime model export and inference
+onnx
+onnxruntime
+
+# Webcam, face mesh, and hand gesture detection
+mediapipe==0.10.14
+opencv-python-headless==4.10.0.84
+
+# Optional tree boosting models for ML experiments
+# xgboost
+# lightgbm

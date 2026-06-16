@@ -1,7 +1,9 @@
-# data (원시 데이터 제외, flashlight/data/ Python 모듈은 포함)
+# data (원시 데이터 제외, Python 모듈은 포함)
 data/
 !ml-pipeline/flashlight/data/
 !ml-pipeline/flashlight/data/**
+!ml-pipeline/facial_recognition/data/
+!ml-pipeline/facial_recognition/data/**
 model-store/
 runs/
 outputs/
