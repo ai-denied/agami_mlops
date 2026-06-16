@@ -31,7 +31,8 @@ WORKDIR /workspace/ml-pipeline
 COPY requirements-flashlight.txt ./
 RUN pip install --no-cache-dir -r requirements-flashlight.txt
 
-# flashlight 패키지 코드 복사 (data/, runs/, model-store/ 는 PVC 마운트)
+# 패키지 코드 복사 (data/, runs/, model-store/ 는 PVC 마운트)
+COPY common/ ./common/
 COPY flashlight/ ./flashlight/
 
 ENV PYTHONPATH=/workspace/ml-pipeline

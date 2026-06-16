@@ -28,7 +28,8 @@ WORKDIR /workspace/ml-pipeline
 COPY requirements-face-api.txt ./
 RUN pip install --no-cache-dir -r requirements-face-api.txt
 
-# facial_recognition 패키지만 복사 (model-store/ 는 PVC 마운트)
+# 패키지 코드 복사 (model-store/ 는 PVC 마운트)
+COPY common/ ./common/
 COPY facial_recognition/ ./facial_recognition/
 
 ENV PYTHONPATH=/workspace/ml-pipeline

@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException
 
 from facial_recognition.api import loader, schemas
 from facial_recognition.captcha_decision import MissionRound, decide_three_round_captcha
+from common.api import dashboard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,6 +52,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.include_router(dashboard.router)
 
 
 # ── 헬스체크 ──────────────────────────────────────────────────────────────────

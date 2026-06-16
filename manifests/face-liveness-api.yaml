@@ -70,6 +70,8 @@ spec:
           env:
             - name: FACE_MODEL_DIR
               value: /workspace/ml-pipeline/model-store/facial_recognition/current
+            - name: DASHBOARD_CACHE_PATH
+              value: /workspace/ml-pipeline/model-store/facial_recognition/dashboard_cache.json
             - name: PYTHONUNBUFFERED
               value: "1"
 

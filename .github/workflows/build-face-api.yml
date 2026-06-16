@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "ml-pipeline/facial_recognition/**"
+      - "ml-pipeline/common/**"
       - "ml-pipeline/Dockerfile.face-api"
       - "ml-pipeline/requirements-face-api.txt"
       - ".github/workflows/build-face-api.yml"
