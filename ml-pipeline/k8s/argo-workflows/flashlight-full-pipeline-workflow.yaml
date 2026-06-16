@@ -387,7 +387,23 @@ spec:
             ],
             cwd="/workspace/ml-pipeline",
         )
-        sys.exit(result.returncode)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+
+        # ONNX export
+        pth_path  = os.path.join(out_dir, "mouse_gru_server_final_v2.pth")
+        meta_path = os.path.join(out_dir, "mouse_metadata_server_final_v2.json")
+        onnx_path = os.path.join(out_dir, "mouse_gru_server_final_v2.onnx")
+        result2 = subprocess.run(
+            [
+                sys.executable, "-m", "flashlight.export.export_mouse_gru_to_onnx",
+                "--model",    pth_path,
+                "--metadata", meta_path,
+                "--output",   onnx_path,
+            ],
+            cwd="/workspace/ml-pipeline",
+        )
+        sys.exit(result2.returncode)
 
       volumeMounts:
       - name: flashlight-data
