@@ -48,6 +48,11 @@ def merge_sampled_data():
     for file_path in human_files:
         data = load_json(file_path)
 
+        sf = data.get("static_features", {})
+        if not sf or all(v == 0 for v in sf.values()):
+            print(f"[SKIP] static_features 없음: {os.path.basename(file_path)}")
+            continue
+
         data["user_id"] = f"user{user_count}"
         data["source_type"] = "human"
         data["bot_type"] = None
@@ -70,6 +75,11 @@ def merge_sampled_data():
 
         for file_path in sampled_files:
             data = load_json(file_path)
+
+            sf = data.get("static_features", {})
+            if not sf or all(v == 0 for v in sf.values()):
+                print(f"[SKIP] static_features 없음: {os.path.basename(file_path)}")
+                continue
 
             data["user_id"] = f"user{user_count}"
             data["source_type"] = "bot"
