@@ -92,7 +92,7 @@ spec:
 
           volumeMounts:
             - name: flashlight-model-store
-              mountPath: /model-store/flashlight
+              mountPath: /model-store
               readOnly: true
 
       volumes:
