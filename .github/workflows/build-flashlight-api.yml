@@ -80,10 +80,13 @@ jobs:
         uses: azure/setup-kubectl@v3
 
       - name: Configure kubeconfig
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
+          printf '%s' "${KUBECONFIG_DATA}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
+          kubectl cluster-info
 
       - name: Rolling restart
         run: |
