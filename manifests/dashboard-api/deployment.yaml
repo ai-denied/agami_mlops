@@ -57,7 +57,7 @@ spec:
 
       containers:
         - name: dashboard-api
-          image: agami-captcha.cloud:8443/agami/dashboard-api:latest
+          image: agami-captcha.cloud:8443/agami/dashboard-api:268dd66c
           imagePullPolicy: Always
 
           ports:
