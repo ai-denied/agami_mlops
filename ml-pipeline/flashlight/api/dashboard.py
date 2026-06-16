@@ -58,6 +58,13 @@ def _load_cache() -> Dict[str, Any]:
         _cache_mtime = mtime
     return _cache
 
+# 모델 필터링 헬퍼 함수 추가
+def _filter_sessions(sessions: List[Dict[str, Any]], kind: str) -> List[Dict[str, Any]]:
+    if kind == "all":
+        return sessions
+    # 세션 내부 데이터에 명시적인 kind 또는 model_type 값이 포함되어 있다고 상정하고 처리합니다.
+    return [s for s in sessions if s.get("kind") == kind or s.get("model_type") == kind]
+
 
 # ── Response schemas ───────────────────────────────────────────────────────────
 
@@ -139,37 +146,40 @@ class TrafficResponse(BaseModel):
     response_model=SummaryResponse,
     summary="전체 통계 + 파이 차트 데이터",
 )
-def get_summary():
+def get_summary(kind: str = Query(default="all")):
     cache = _load_cache()
-    s = cache["summary"]
-    total = s["total_sessions"]
+    sessions = _filter_sessions(cache.get("sessions", []), kind)
+    total = len(sessions)
 
-    sessions = cache["sessions"]
-    human_pass = sum(1 for r in sessions if r["source_type"] == "human" and r["risk_band"] == "low_risk")
-    human_suspicious = sum(1 for r in sessions if r["source_type"] == "human" and r["risk_band"] == "suspicious")
-    human_blocked = sum(1 for r in sessions if r["source_type"] == "human" and r["is_blocked"])
-    bot_detected = sum(1 for r in sessions if r["source_type"] == "bot" and r["is_blocked"])
-    bot_missed = sum(1 for r in sessions if r["source_type"] == "bot" and not r["is_blocked"])
+    # 실제 캐시 세션 데이터를 돌며 필터링된 결과로 정직하게 계산
+    human_pass = sum(1 for r in sessions if r.get("source_type") == "human" and r.get("risk_band") == "low_risk")
+    human_suspicious = sum(1 for r in sessions if r.get("source_type") == "human" and r.get("risk_band") == "suspicious")
+    human_blocked = sum(1 for r in sessions if r.get("source_type") == "human" and r.get("is_blocked"))
+    bot_detected = sum(1 for r in sessions if r.get("source_type") == "bot" and r.get("is_blocked"))
+    bot_missed = sum(1 for r in sessions if r.get("source_type") == "bot" and not r.get("is_blocked"))
+
+    human_total = human_pass + human_suspicious + human_blocked
+    bot_total = bot_detected + bot_missed
 
     pie = [
-        PieSlice(label="Human Passed",     count=human_pass,        ratio=round(human_pass / total, 4) if total else 0),
-        PieSlice(label="Human Suspicious", count=human_suspicious,   ratio=round(human_suspicious / total, 4) if total else 0),
-        PieSlice(label="Human Blocked",    count=human_blocked,      ratio=round(human_blocked / total, 4) if total else 0),
-        PieSlice(label="Bot Detected",     count=bot_detected,       ratio=round(bot_detected / total, 4) if total else 0),
-        PieSlice(label="Bot Missed",       count=bot_missed,         ratio=round(bot_missed / total, 4) if total else 0),
+        PieSlice(label="Human Passed",     count=human_pass,       ratio=human_pass / total if total else 0.0),
+        PieSlice(label="Human Suspicious", count=human_suspicious, ratio=human_suspicious / total if total else 0.0),
+        PieSlice(label="Human Blocked",    count=human_blocked,    ratio=human_blocked / total if total else 0.0),
+        PieSlice(label="Bot Detected",     count=bot_detected,     ratio=bot_detected / total if total else 0.0),
+        PieSlice(label="Bot Missed",       count=bot_missed,       ratio=bot_missed / total if total else 0.0),
     ]
 
     return SummaryResponse(
         generated_at=cache.get("generated_at", ""),
         model_version=cache.get("model_version", ""),
         total_sessions=total,
-        human_total=s.get("human_total", 0),
-        bot_total=s.get("bot_total", 0),
-        human_pass_rate=s.get("human_pass_rate", 0.0),
-        human_suspicious_rate=s.get("human_suspicious_rate", 0.0),
-        human_block_rate=s.get("human_block_rate", 0.0),
-        bot_detect_rate=s.get("bot_detect_rate", 0.0),
-        bot_miss_rate=s.get("bot_miss_rate", 0.0),
+        human_total=human_total,
+        bot_total=bot_total,
+        human_pass_rate=human_pass / human_total if human_total else 0.0,
+        human_suspicious_rate=human_suspicious / human_total if human_total else 0.0,
+        human_block_rate=human_blocked / human_total if human_total else 0.0,
+        bot_detect_rate=bot_detected / bot_total if bot_total else 0.0,
+        bot_miss_rate=bot_missed / bot_total if bot_total else 0.0,
         pie_chart=pie,
     )
 
@@ -179,28 +189,41 @@ def get_summary():
     response_model=AttackTypesResponse,
     summary="공격 유형 Top N (기본 5)",
 )
-def get_attack_types(top_n: int = Query(default=5, ge=1, le=20)):
+def get_attack_types(top_n: int = Query(default=5, ge=1, le=20), kind: str = Query(default="all")):
     cache = _load_cache()
-    raw_counts: Dict[str, Dict[str, int]] = cache.get("summary", {}).get("attack_type_counts", {})
+    sessions = _filter_sessions(cache.get("sessions", []), kind)
+
+    type_counts = {}
+    bot_total_count = 0
+
+    for s in sessions:
+        if s.get("source_type") == "bot":
+            bot_total_count += 1
+            b_type = s.get("bot_type", "unknown")
+            if b_type not in type_counts:
+                type_counts[b_type] = {"count": 0, "blocked": 0}
+            type_counts[b_type]["count"] += 1
+            if s.get("is_blocked"):
+                type_counts[b_type]["blocked"] += 1
 
     items: List[AttackTypeItem] = []
-    for key, val in raw_counts.items():
-        cnt = val.get("count", 0)
-        blocked = val.get("blocked", 0)
+    for key, val in type_counts.items():
+        cnt = val["count"]
+        blocked = val["blocked"]
         items.append(
             AttackTypeItem(
                 type_key=key,
                 display_name=BOT_TYPE_DISPLAY.get(key, key),
                 count=cnt,
                 blocked=blocked,
-                block_rate=round(blocked / cnt, 4) if cnt else 0.0,
+                block_rate=blocked / cnt if cnt else 0.0,
             )
         )
 
     items.sort(key=lambda x: x.count, reverse=True)
 
     return AttackTypesResponse(
-        total_bot_sessions=cache.get("summary", {}).get("bot_total", 0),
+        total_bot_sessions=bot_total_count,
         top_types=items[:top_n],
     )
 
@@ -210,17 +233,23 @@ def get_attack_types(top_n: int = Query(default=5, ge=1, le=20)):
     response_model=RiskDistributionResponse,
     summary="Safe / Suspicious / Critical 분포",
 )
-def get_risk_distribution():
+def get_risk_distribution(kind: str = Query(default="all")):
     cache = _load_cache()
-    counts: Dict[str, int] = cache.get("summary", {}).get("risk_band_counts", {})
-    total = cache.get("summary", {}).get("total_sessions", 0)
+    sessions = _filter_sessions(cache.get("sessions", []), kind)
+    total = len(sessions)
+
+    counts = {"low_risk": 0, "suspicious": 0, "high_risk": 0}
+    for s in sessions:
+        rb = s.get("risk_band")
+        if rb in counts:
+            counts[rb] += 1
 
     bands = [
         RiskBandItem(
             band=key,
             display_name=RISK_BAND_DISPLAY.get(key, key),
-            count=counts.get(key, 0),
-            ratio=round(counts.get(key, 0) / total, 4) if total else 0.0,
+            count=counts[key],
+            ratio=counts[key] / total if total else 0.0,
         )
         for key in ("low_risk", "suspicious", "high_risk")
     ]
@@ -240,9 +269,10 @@ def get_sessions(
     bot_type: Optional[str] = Query(default=None, description="grid_search | known_target | other_search | random_search"),
     risk_band: Optional[str] = Query(default=None, description="low_risk | suspicious | high_risk"),
     is_blocked: Optional[bool] = Query(default=None),
+    kind: str = Query(default="all")
 ):
     cache = _load_cache()
-    sessions = cache.get("sessions", [])
+    sessions = _filter_sessions(cache.get("sessions", []), kind)
 
     if source_type is not None:
         sessions = [s for s in sessions if s.get("source_type") == source_type]
@@ -275,9 +305,9 @@ def get_sessions(
     response_model=TrafficResponse,
     summary="시간대별 트래픽 (정상/차단) 통계",
 )
-def get_traffic():
+def get_traffic(kind: str = Query(default="all")):
     cache = _load_cache()
-    sessions = cache.get("sessions", [])
+    sessions = _filter_sessions(cache.get("sessions", []), kind)
 
     traffic_dict = {}
 
