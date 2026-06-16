@@ -81,17 +81,16 @@ spec:
               value: /workspace/ml-pipeline/model-store/flashlight/current
             - name: PYTHONUNBUFFERED
               value: "1"
+            - name: DASHBOARD_CACHE_PATH
+              value: /workspace/ml-pipeline/model-store/flashlight/dashboard_cache.json
 
-          # ── 리소스 ────────────────────────────────────────────────────────
-          # CPU: onnxruntime는 기본적으로 단일 스레드 추론 → 500m으로 충분
-          # Memory: GRU 모델 (~40MB) + Python 런타임 + 요청 처리 여유분
           resources:
             requests:
               cpu: "250m"
-              memory: "256Mi"
+              memory: "384Mi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "640Mi"
 
           # ── Readiness Probe ────────────────────────────────────────────────
           # 모델 로드 완료 후에만 트래픽 수신 (startup 지연 고려)
