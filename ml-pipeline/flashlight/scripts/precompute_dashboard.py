@@ -132,6 +132,7 @@ def run(data_dir: Path, out_path: Path, model_dir: Optional[str]) -> None:
             "bot_risk_score": risk_score,
             "risk_band": risk_band,
             "is_blocked": risk_band == "high_risk",
+            "kind": "flashlight",
         })
 
         if i % 1000 == 0 or i == total_files:
