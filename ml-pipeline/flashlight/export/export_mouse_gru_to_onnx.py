@@ -133,10 +133,7 @@ def export_onnx(model_path: str, metadata_path: str, output_path: str, opset: in
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
-    torch.onnx.export(
-        model,
-        (x_seq, lengths, x_static),
-        output_path,
+    export_kwargs = dict(
         input_names=["x_seq", "lengths", "x_static"],
         output_names=["bot_risk_score"],
         dynamic_axes={
@@ -148,6 +145,14 @@ def export_onnx(model_path: str, metadata_path: str, output_path: str, opset: in
         opset_version=opset,
         do_constant_folding=True,
     )
+    try:
+        # PyTorch >= 2.1: dynamo=False로 레거시 C++ exporter 강제 사용
+        torch.onnx.export(model, (x_seq, lengths, x_static), output_path,
+                          dynamo=False, **export_kwargs)
+    except TypeError:
+        # PyTorch < 2.1: dynamo 파라미터 없음
+        torch.onnx.export(model, (x_seq, lengths, x_static), output_path,
+                          **export_kwargs)
 
     print("ONNX export 완료")
     print(f"ONNX: {output_path}")
