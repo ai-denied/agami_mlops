@@ -26,11 +26,11 @@ def get_json_files(folder_path):
         print(f"폴더 없음: {folder_path}")
         return []
 
-    return [
+    return sorted([
         os.path.join(folder_path, file)
         for file in os.listdir(folder_path)
         if file.endswith(".json")
-    ]
+    ])
 
 
 def merge_sampled_data():
