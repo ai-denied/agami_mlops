@@ -21,6 +21,7 @@ scikit-learn>=1.3.0
 # ONNX 내보내기 (train_mouse_gru.py 내부에서 torch.onnx.export 사용)
 onnx>=1.14.0
 onnxruntime>=1.15.0
+onnxscript>=0.1.0
 
 matplotlib>=3.7.0
 
