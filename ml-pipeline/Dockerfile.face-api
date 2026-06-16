@@ -1,0 +1,43 @@
+# =============================================================================
+# Dockerfile.face-api
+#
+# 용도  : face-liveness 추론 API 서버 이미지
+# 대상  : Kubernetes Deployment (face-liveness-api)
+#
+# 포함  : facial_recognition/ 패키지 코드, FastAPI + onnxruntime
+# 미포함: model-store/ → 런타임에 PVC 마운트 또는 FACE_MODEL_DIR 로 지정
+#
+# 빌드:
+#   docker build -f ml-pipeline/Dockerfile.face-api \
+#                -t agami-captcha.cloud:8443/agami/face-liveness-api:latest .
+#
+# 로컬 실행 테스트:
+#   docker run --rm -p 8081:8081 \
+#     -v $(pwd)/ml-pipeline/model-store:/workspace/ml-pipeline/model-store \
+#     agami-captcha.cloud:8443/agami/face-liveness-api:latest
+# =============================================================================
+
+FROM python:3.10-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/ml-pipeline
+
+COPY requirements-face-api.txt ./
+RUN pip install --no-cache-dir -r requirements-face-api.txt
+
+# facial_recognition 패키지만 복사 (model-store/ 는 PVC 마운트)
+COPY facial_recognition/ ./facial_recognition/
+
+ENV PYTHONPATH=/workspace/ml-pipeline
+ENV FACE_MODEL_DIR=/workspace/ml-pipeline/model-store/facial_recognition/current
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8081
+
+CMD ["uvicorn", "facial_recognition.api.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8081", \
+     "--workers", "1"]

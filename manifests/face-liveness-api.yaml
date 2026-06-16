@@ -1,0 +1,129 @@
+# =============================================================================
+# face-liveness-api.yaml
+#
+# face liveness 추론 API 서버 Kubernetes 배포 매니페스트
+#
+# 포함 리소스:
+#   1. Deployment — face-liveness-api
+#   2. Service    — face-liveness-api-svc (ClusterIP)
+#
+# 의존:
+#   - facial-recognition-model-store-pvc (별도 PVC 정의 필요)
+#
+# 이미지 빌드:
+#   docker build -f ml-pipeline/Dockerfile.face-api \
+#                -t agami-captcha.cloud:8443/agami/face-liveness-api:latest .
+#
+# 적용:
+#   kubectl apply -f manifests/face-liveness-api.yaml -n argo
+#
+# 엔드포인트 확인:
+#   kubectl port-forward svc/face-liveness-api-svc 8081:80 -n argo
+#   curl http://localhost:8081/health
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: face-liveness-api
+  namespace: argo
+  labels:
+    app: face-liveness-api
+    component: inference
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: face-liveness-api
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: face-liveness-api
+        component: inference
+
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: face-liveness-api
+          image: agami-captcha.cloud:8443/agami/face-liveness-api:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+
+          env:
+            - name: FACE_MODEL_DIR
+              value: /workspace/ml-pipeline/model-store/facial_recognition/current
+            - name: PYTHONUNBUFFERED
+              value: "1"
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: model-store
+              mountPath: /workspace/ml-pipeline/model-store
+              readOnly: true
+
+      volumes:
+        - name: model-store
+          persistentVolumeClaim:
+            claimName: facial-recognition-model-store-pvc
+            readOnly: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: face-liveness-api-svc
+  namespace: argo
+  labels:
+    app: face-liveness-api
+    component: inference
+spec:
+  type: ClusterIP
+  selector:
+    app: face-liveness-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8081
+      protocol: TCP

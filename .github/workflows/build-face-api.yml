@@ -1,0 +1,98 @@
+name: Build & Push face-liveness-api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ml-pipeline/facial_recognition/**"
+      - "ml-pipeline/Dockerfile.face-api"
+      - "ml-pipeline/requirements-face-api.txt"
+      - ".github/workflows/build-face-api.yml"
+      # manifests/** 제외 — CI가 매니페스트를 커밋할 때 무한 루프 방지
+
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag (비워두면 SHA 자동 사용)"
+        required: false
+        default: ""
+
+env:
+  REGISTRY:      agami-captcha.cloud:8443
+  IMAGE_NAME:    agami/face-liveness-api
+  MANIFEST_FILE: manifests/face-liveness-api.yaml
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag:        ${{ steps.tag.outputs.tag }}
+      full_image: ${{ steps.tag.outputs.full_image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${GITHUB_SHA::8}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "full_image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Build and push
+        uses: docker/build-push-action@v6.16.0
+        with:
+          context: ./ml-pipeline
+          file: ./ml-pipeline/Dockerfile.face-api
+          push: true
+          tags: |
+            ${{ steps.tag.outputs.full_image }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  update-manifest:
+    name: Update Image Tag in Manifest
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update image tag in manifest
+        run: |
+          NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.tag }}"
+          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${NEW_IMAGE}|g" \
+            ${{ env.MANIFEST_FILE }}
+          echo "Updated image to: ${NEW_IMAGE}"
+          grep "image:" ${{ env.MANIFEST_FILE }}
+
+      - name: Commit and push manifest
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ env.MANIFEST_FILE }}
+          git diff --staged --quiet && echo "변경 없음, skip" && exit 0
+          git commit -m "chore: update face-liveness-api image → ${{ needs.build-and-push.outputs.tag }} [skip ci]"
+          git push
