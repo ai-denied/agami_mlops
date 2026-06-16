@@ -1,0 +1,39 @@
+# =============================================================================
+# Dockerfile.dashboard
+#
+# 용도  : CAPTCHA Dashboard API 서버 이미지 (모델 추론 없음)
+# 대상  : Kubernetes Deployment (dashboard-api)
+#
+# 포함  : common/ 패키지 코드, FastAPI (경량)
+# 미포함: model-store/ — dashboard-cache-pvc 로 런타임 마운트
+#
+# 빌드:
+#   docker build -f ml-pipeline/Dockerfile.dashboard \
+#                -t agami-captcha.cloud:8443/agami/dashboard-api:latest .
+#
+# 로컬 실행 테스트:
+#   docker run --rm -p 8082:8082 \
+#     -e DASHBOARD_CACHE_PATH=/cache/dashboard_cache.json \
+#     -v $(pwd)/data/dashboard:/cache \
+#     agami-captcha.cloud:8443/agami/dashboard-api:latest
+# =============================================================================
+
+FROM python:3.10-slim
+
+WORKDIR /workspace/ml-pipeline
+
+COPY requirements-dashboard.txt ./
+RUN pip install --no-cache-dir -r requirements-dashboard.txt
+
+COPY common/ ./common/
+
+ENV PYTHONPATH=/workspace/ml-pipeline
+ENV DASHBOARD_CACHE_PATH=/dashboard-cache/dashboard_cache.json
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8082
+
+CMD ["uvicorn", "common.api.dashboard_main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8082", \
+     "--workers", "1"]

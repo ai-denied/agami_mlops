@@ -1,0 +1,126 @@
+# =============================================================================
+# dashboard-api Deployment + Service
+#
+# CAPTCHA Dashboard 통계 API 독립 서비스
+#
+# 의존:
+#   - dashboard-cache-pvc (pvc.yaml)
+#     precompute_dashboard.py 가 이 PVC에 dashboard_cache.json 을 생성해야 함
+#
+# 캐시 파일 생성 예시 (precompute job):
+#   python -m flashlight.scripts.precompute_dashboard \
+#     --data-dir /workspace/data/flashlight \
+#     --out /dashboard-cache/dashboard_cache.json
+#
+# 적용:
+#   kubectl apply -f manifests/dashboard-api/ -n agami
+#
+# 엔드포인트 확인:
+#   kubectl port-forward svc/dashboard-api-svc 8082:80 -n agami
+#   curl http://localhost:8082/health
+# =============================================================================
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-api
+  namespace: agami
+  labels:
+    app: dashboard-api
+    component: dashboard
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: dashboard-api
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: dashboard-api
+        component: dashboard
+
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      containers:
+        - name: dashboard-api
+          image: agami-captcha.cloud:8443/agami/dashboard-api:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 8082
+              protocol: TCP
+
+          env:
+            - name: DASHBOARD_CACHE_PATH
+              value: /dashboard-cache/dashboard_cache.json
+            - name: PYTHONUNBUFFERED
+              value: "1"
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: dashboard-cache
+              mountPath: /dashboard-cache
+              readOnly: true
+
+      volumes:
+        - name: dashboard-cache
+          persistentVolumeClaim:
+            claimName: dashboard-cache-pvc
+            readOnly: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-api-svc
+  namespace: agami
+  labels:
+    app: dashboard-api
+    component: dashboard
+spec:
+  type: ClusterIP
+  selector:
+    app: dashboard-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8082
+      protocol: TCP

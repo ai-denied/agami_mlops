@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dashboard-api
+  namespace: argocd
+  labels:
+    app: dashboard-api
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ai-denied/agami_mlops.git
+    targetRevision: main
+    path: manifests/dashboard-api
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agami
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
