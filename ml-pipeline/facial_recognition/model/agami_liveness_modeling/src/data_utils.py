@@ -19,6 +19,10 @@ def infer_source_group(sample_id: str) -> str:
     s = str(sample_id)
     if s.startswith("ATK"):
         return "ATK_external_clip"
+    if s.startswith("VL"):
+        return "VL_face_video"
+    if s.startswith("VS"):
+        return "VS_face_video"
     if s.startswith("R"):
         return "R_live_clip"
     if s.startswith("S"):

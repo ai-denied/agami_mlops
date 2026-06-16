@@ -147,7 +147,6 @@ def export_onnx(model_path: str, metadata_path: str, output_path: str, opset: in
         },
         opset_version=opset,
         do_constant_folding=True,
-        dynamo=False,
     )
 
     print("ONNX export 완료")
