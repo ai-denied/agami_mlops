@@ -53,7 +53,11 @@ class PredictResponse(BaseModel):
 # ── 3회 라운드 판정 ────────────────────────────────────────────────────────────
 
 class MissionRoundInput(BaseModel):
-    """CAPTCHA 1회 라운드 결과."""
+    """CAPTCHA 1회 라운드 결과.
+
+    risk_band는 참고용으로만 받으며, 서버는 항상 현재 로드된 모델의
+    threshold로 spoof_score를 재분류해 사용한다 (클라이언트 값은 신뢰하지 않음).
+    """
     round_id: Annotated[int, Field(ge=1, le=3)]
     mission_type: Literal["face", "hand"]
     spoof_score: Annotated[float, Field(ge=0.0, le=1.0)]
@@ -85,6 +89,8 @@ class DecideResponse(BaseModel):
     failed_mission_count: int
     failed_face_count: int
     timeout_count: int
+    spoof_detected_count: int
+    risk_bands: List[Literal["real_safe", "suspicious", "spoof_detected"]]
 
 
 # ── 헬스체크 ─────────────────────────────────────────────────────────────────

@@ -58,6 +58,26 @@ LABEL_MAP    = {"real": 0, "spoof": 1}
 BLINK_THRESH = 0.20
 
 
+class _Landmark:
+    __slots__ = ("x", "y", "z")
+
+    def __init__(self, x: float, y: float, z: float):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+def aspect_corrected_landmarks(landmarks, width: int, height: int):
+    """
+    MediaPipe landmark.x/y는 각각 이미지 너비/높이로 독립 정규화된다. 영상이
+    정사각형이 아니면(대부분의 영상이 그렇다) y축이 체계적으로 왜곡되어
+    _dist() 기반의 거리/각도가 source별 촬영 비율 차이만으로 달라진다
+    (RETROSPECTIVE 참고).
+    """
+    aspect_ratio = (width / height) if height else 1.0
+    return [_Landmark(lm.x, lm.y / aspect_ratio, lm.z) for lm in landmarks]
+
+
 # ── 기본 계산 ────────────────────────────────────────────────────────────────
 
 def _dist(lm, i, j):
@@ -228,10 +248,11 @@ def process_video(path: Path, face_mesh, step: int):
             break
         if frame_idx % step == 0:
             total_sampled += 1
+            h, w   = frame.shape[:2]
             rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             result = face_mesh.process(rgb)
             if result.multi_face_landmarks:
-                lm = result.multi_face_landmarks[0].landmark
+                lm = aspect_corrected_landmarks(result.multi_face_landmarks[0].landmark, w, h)
                 valid_frames.append(extract_frame_features(lm))
         frame_idx += 1
 

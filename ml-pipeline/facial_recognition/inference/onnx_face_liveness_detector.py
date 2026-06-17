@@ -95,8 +95,15 @@ class OnnxFaceLivenessDetector:
     GRU 얼굴 활성도 ONNX 추론기.
 
     metadata.json 필드:
-      threshold            (float) — 모델 학습 시 선택된 임계값
-      high_spoof_threshold (float, 선택) — 미제공 시 threshold * 1.3
+      threshold            (float) — 모델 학습 시 선택된 임계값 (low_thr, real_safe/suspicious 경계)
+      high_spoof_threshold (float, 선택) — suspicious/spoof_detected 경계.
+                            미제공 시 threshold*1.3 으로 추정하지만, 이는 검증되지
+                            않은 임의값이다. 운영 배포 전에는 export 시점에
+                            (`export_face_liveness_onnx.py --high-threshold`)
+                            명시적으로 설정해 metadata.json에 박아두는 것을 강력히
+                            권장한다 — R_live_clip 실환경 FRR이 95%로 매우 높은
+                            모델이므로, 보수적인 high_thr(예: 0.55) 없이는 단일
+                            라운드의 noise가 곧바로 spoof_detected로 분류될 수 있다.
       three_attempt_policy (dict, 선택)
     """
 
@@ -110,6 +117,12 @@ class OnnxFaceLivenessDetector:
             self.metadata = json.load(f)
 
         self.low_thr  = float(self.metadata.get("threshold", 0.5))
+        if "high_spoof_threshold" not in self.metadata:
+            import logging
+            logging.getLogger(__name__).warning(
+                "metadata.json에 high_spoof_threshold가 없어 fallback(min(low_thr*1.3, 0.9))을 "
+                "사용합니다. 운영 배포 전 export 시점에 명시적으로 설정하세요."
+            )
         self.high_thr = float(
             self.metadata.get(
                 "high_spoof_threshold",

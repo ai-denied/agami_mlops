@@ -1,0 +1,70 @@
+{
+  "version": "v3_time_norm",
+  "file": "model/retrain_aspectfix/face_clip_data_time_norm.npz",
+  "n_samples": 1013,
+  "seq_length": 16,
+  "min_valid_frames": 3,
+  "frame_interval_by_source": {
+    "ATK_external_clip": {
+      "unique": [
+        1
+      ],
+      "count": 188
+    },
+    "R_live_clip": {
+      "unique": [
+        1
+      ],
+      "count": 93
+    },
+    "S_dataset_sequence": {
+      "unique": [
+        60,
+        120,
+        180
+      ],
+      "count": 676
+    },
+    "VL_face_video": {
+      "unique": [
+        1
+      ],
+      "count": 29
+    },
+    "VS_face_video": {
+      "unique": [
+        1
+      ],
+      "count": 27
+    }
+  },
+  "time_normalized_seq_features": [
+    "nose_dx_tn",
+    "nose_dy_tn",
+    "center_dx_tn",
+    "center_dy_tn",
+    "nose_speed_tn",
+    "ear_vel_tn",
+    "mar_vel_tn",
+    "yaw_vel_tn",
+    "pitch_vel_tn",
+    "roll_vel_tn"
+  ],
+  "time_normalized_static_features": [
+    "face_movement_tn",
+    "nose_movement_tn"
+  ],
+  "normalization_formula": "feature_tn = raw_feature / frame_interval",
+  "changes_from_v2": [
+    "velocity/displacement features divided by estimated frame_interval",
+    "face_movement and nose_movement also divided by frame_interval",
+    "frame_intervals saved as NPZ metadata",
+    "feature names use _tn suffix for time-normalized features"
+  ],
+  "known_limitations": [
+    "R_live_clip (frame_interval=1) and ATK_external_clip (frame_interval=1) remain at same temporal scale",
+    "time normalization does not make R_live ≈ S_live in velocity features",
+    "R_live and ATK_spoof micro-motion at 1/30s scale remains similar",
+    "discriminative features at dense sampling: blink_count, ear_std, ear_vel_tn"
+  ]
+}

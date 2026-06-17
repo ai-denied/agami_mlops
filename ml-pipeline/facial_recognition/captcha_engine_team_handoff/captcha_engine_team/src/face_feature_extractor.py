@@ -118,7 +118,16 @@ class FaceFeatureExtractor:
             return None
 
         landmarks = result.multi_face_landmarks[0].landmark
-        points = np.asarray([[lm.x, lm.y, lm.z] for lm in landmarks], dtype=np.float32)
+        # MediaPipe landmark.x/y는 각각 프레임 너비/높이로 독립 정규화된다.
+        # 프레임이 정사각형이 아니면(폰 카메라는 보통 16:9 또는 9:16) y축이
+        # 체계적으로 왜곡되어 EAR 등 거리 기반 피처가 학습 데이터의 촬영 비율과
+        # 다른 사용자 카메라 비율만으로 달라진다 (RETROSPECTIVE 참고). y를
+        # 너비 기준 단위로 환산해 이후 모든 거리 계산이 단일 단위를 쓰도록 만든다.
+        h, w = frame_bgr.shape[:2]
+        aspect_ratio = (w / h) if h else 1.0
+        points = np.asarray(
+            [[lm.x, lm.y / aspect_ratio, lm.z] for lm in landmarks], dtype=np.float32
+        )
 
         left_eye = self._eye_aspect_ratio(points, [33, 160, 158, 133, 153, 144])
         right_eye = self._eye_aspect_ratio(points, [362, 385, 387, 263, 373, 380])

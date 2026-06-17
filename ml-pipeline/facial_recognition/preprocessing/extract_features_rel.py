@@ -77,6 +77,29 @@ EYE_RIGHT_OUTER_IDX  = 263
 
 # ── 유틸 ──────────────────────────────────────────────────────────────────────
 
+class _Landmark:
+    __slots__ = ("x", "y", "z")
+
+    def __init__(self, x: float, y: float, z: float):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+def aspect_corrected_landmarks(landmarks, width: int, height: int):
+    """
+    MediaPipe landmark.x/y는 각각 이미지 너비/높이로 독립 정규화된다.
+    이미지가 정사각형이 아니면(예: 16:9 풀프레임 vs 정사각형 크롭) y축이
+    체계적으로 왜곡되어, 아래 _dist() 기반의 모든 거리/각도(EAR, MAR,
+    nose_movement, head_roll 등)가 source별 촬영 비율 차이만으로 달라진다.
+    R_live_clip(EAR 등)이 S_dataset_sequence와 크게 달랐던 원인이 바로 이것이었다
+    (자세한 검증은 RETROSPECTIVE 참고). y를 너비 기준 단위로 환산해
+    이후 모든 계산이 단일 단위(가로폭 기준 비율)를 쓰도록 만든다.
+    """
+    aspect_ratio = (width / height) if height else 1.0
+    return [_Landmark(lm.x, lm.y / aspect_ratio, lm.z) for lm in landmarks]
+
+
 def infer_source_group(sample_id: str) -> str:
     s = str(sample_id)
     if s.startswith("ATK"):
@@ -331,9 +354,11 @@ def process_clip(
         if img is None:
             raw_frames.append(None)
             continue
+        h, w = img.shape[:2]
         result = face_mesh.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         if result.multi_face_landmarks:
-            raw_frames.append(extract_frame_raw(result.multi_face_landmarks[0].landmark))
+            lm = aspect_corrected_landmarks(result.multi_face_landmarks[0].landmark, w, h)
+            raw_frames.append(extract_frame_raw(lm))
         else:
             raw_frames.append(None)
 

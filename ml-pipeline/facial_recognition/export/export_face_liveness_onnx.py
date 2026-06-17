@@ -29,6 +29,7 @@ def export(
     checkpoint_path: str,
     output_path: str,
     meta_path: str | None = None,
+    high_threshold: float | None = None,
 ) -> None:
     ckpt = torch.load(checkpoint_path, map_location="cpu")
 
@@ -38,6 +39,13 @@ def export(
     dropout     = float(ckpt.get("dropout",   0.3))
     threshold   = float(ckpt.get("threshold", 0.5))
     selected_features = ckpt.get("selected_features", [])
+
+    # high_spoof_threshold(suspicious/spoof_detected 경계)는 명시값을 받지 못하면
+    # threshold*1.3 으로 추정하던 기존 fallback 대신, 운영에서 검증된 보수적인 값을
+    # 사용한다. R_live_clip 실환경 FRR 95% 모델 특성상, 단일 라운드 noise로 인한
+    # spoof_detected 오분류를 줄이기 위함이다. (RETROSPECTIVE 참고)
+    if high_threshold is None:
+        high_threshold = max(threshold * 1.3, 0.55)
     scaler_mean  = ckpt.get("scaler_mean",  np.zeros(input_dim))
     scaler_scale = ckpt.get("scaler_scale", np.ones(input_dim))
 
@@ -91,6 +99,7 @@ def export(
             "output_shape":      ["batch"],
             "output_meaning":    "Higher value means higher spoof risk.",
             "threshold":         threshold,
+            "high_spoof_threshold": high_threshold,
             "selected_features": selected_features,
             "preprocessing":     "Raw features in selected_features order. Scaler embedded in ONNX.",
             "export_check":      {
@@ -110,8 +119,12 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True, help="best_gru.pt 경로")
     parser.add_argument("--output",     required=True, help="출력 ONNX 경로")
     parser.add_argument("--meta",       default=None,  help="메타데이터 JSON 저장 경로 (선택)")
+    parser.add_argument(
+        "--high-threshold", type=float, default=None,
+        help="suspicious/spoof_detected 경계값. 미지정 시 max(threshold*1.3, 0.55) 사용.",
+    )
     args = parser.parse_args()
-    export(args.checkpoint, args.output, args.meta)
+    export(args.checkpoint, args.output, args.meta, args.high_threshold)
 
 
 if __name__ == "__main__":

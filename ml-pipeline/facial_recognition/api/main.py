@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException
 
 from facial_recognition.api import loader, schemas
 from facial_recognition.captcha_decision import MissionRound, decide_three_round_captcha
+from facial_recognition.inference.onnx_face_liveness_detector import classify_spoof_risk
 from common.api import dashboard
 
 logging.basicConfig(
@@ -137,12 +138,20 @@ def decide(req: schemas.DecideRequest):
     if not loader.is_loaded():
         raise HTTPException(status_code=503, detail="모델이 로드되지 않았습니다.")
 
+    detector = loader.get_detector()
+
     try:
         rounds = [
             MissionRound(
                 round_id=r.round_id,
                 mission_type=r.mission_type,
                 spoof_score=r.spoof_score,
+                # risk_band는 클라이언트가 보낸 값을 신뢰하지 않고, 현재 로드된
+                # 모델의 detector.low_thr/high_thr 로 서버에서 항상 재계산한다.
+                # /predict 와 /decide 가 서로 다른 threshold를 쓰는 것을 방지한다.
+                risk_band=classify_spoof_risk(
+                    float(r.spoof_score), detector.low_thr, detector.high_thr
+                ),
                 mission_pass=r.mission_pass,
                 face_detected=r.face_detected,
                 timeout=r.timeout,
@@ -152,7 +161,9 @@ def decide(req: schemas.DecideRequest):
             )
             for r in sorted(req.rounds, key=lambda x: x.round_id)
         ]
-        result = decide_three_round_captcha(rounds)
+        result = decide_three_round_captcha(
+            rounds, low_thr=detector.low_thr, high_thr=detector.high_thr
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -167,6 +178,8 @@ def decide(req: schemas.DecideRequest):
         failed_mission_count=result.failed_mission_count,
         failed_face_count=result.failed_face_count,
         timeout_count=result.timeout_count,
+        spoof_detected_count=result.spoof_detected_count,
+        risk_bands=result.risk_bands,
     )
 
 
