@@ -1,0 +1,49 @@
+{
+  "model": "GRU face liveness",
+  "onnx_file": "face_liveness.onnx",
+  "source_checkpoint": "best_gru.pt",
+  "input_name": "x_seq",
+  "input_shape": [
+    "batch",
+    16,
+    20
+  ],
+  "input_dtype": "float32",
+  "output_name": "spoof_score",
+  "output_shape": [
+    "batch"
+  ],
+  "output_meaning": "Higher value means higher spoof risk.",
+  "threshold": 0.65,
+  "high_spoof_threshold": 0.8450000000000001,
+  "selected_features": [
+    "ear",
+    "mar",
+    "smile_w",
+    "nose_x_rel",
+    "nose_y_rel",
+    "cx_rel",
+    "cy_rel",
+    "roll",
+    "yaw",
+    "pitch",
+    "nose_dx_tn",
+    "nose_dy_tn",
+    "center_dx_tn",
+    "center_dy_tn",
+    "nose_speed_tn",
+    "ear_vel_tn",
+    "mar_vel_tn",
+    "yaw_vel_tn",
+    "pitch_vel_tn",
+    "roll_vel_tn"
+  ],
+  "preprocessing": "Raw features in selected_features order. Scaler embedded in ONNX.",
+  "export_check": {
+    "score_before_export": 0.9774302244186401,
+    "score_after_export": 0.9774302244186401,
+    "absolute_diff": 0.0
+  },
+  "promoted_at": "2026-06-18 00:38:23",
+  "promoted_from_candidate": "candidates/v3_w8_aspectfix_20260618"
+}
