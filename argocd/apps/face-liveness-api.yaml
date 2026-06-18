@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: face-liveness-api
+  namespace: argocd
+  labels:
+    app: face-liveness-api
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ai-denied/agami_mlops.git
+    targetRevision: main
+    path: manifests
+    directory:
+      # face-liveness-api는 dashboard-api처럼 전용 폴더로 분리되어 있지 않고
+      # manifests/ 최상위에 파일이 흩어져 있어 include glob으로 필요한 것만 선택한다.
+      # 1회성 Job(kaniko 빌드, 모델 PVC 반영)은 의도적으로 제외 — Job은 GitOps로
+      # 상시 동기화할 대상이 아니라 수동/일회성 실행물이라 selfHeal과 충돌한다.
+      include: "{face-liveness-api.yaml,facial-recognition-model-store-pvc.yaml}"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agami
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
