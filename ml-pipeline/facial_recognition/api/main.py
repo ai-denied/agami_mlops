@@ -24,7 +24,6 @@ from fastapi import FastAPI, HTTPException
 from facial_recognition.api import loader, schemas
 from facial_recognition.captcha_decision import MissionRound, decide_three_round_captcha
 from facial_recognition.inference.onnx_face_liveness_detector import classify_spoof_risk
-from common.api import dashboard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +53,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(dashboard.router)
+# dashboard 라우터는 의도적으로 등록하지 않는다 — facial_recognition 쪽에는
+# dashboard_cache.json을 만드는 precompute_dashboard.py/CronJob이 아직 없어서
+# (flashlight에만 있음) 등록하면 /api/v1/dashboard/* 가 항상 503을 낸다.
+# dashboard가 필요해지면 facial_recognition 전용 precompute 구현과 함께 추가한다.
 
 
 # ── 헬스체크 ──────────────────────────────────────────────────────────────────
