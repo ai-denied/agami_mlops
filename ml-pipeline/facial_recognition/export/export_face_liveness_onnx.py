@@ -30,6 +30,7 @@ def export(
     output_path: str,
     meta_path: str | None = None,
     high_threshold: float | None = None,
+    threshold: float | None = None,
 ) -> None:
     ckpt = torch.load(checkpoint_path, map_location="cpu")
 
@@ -37,7 +38,10 @@ def export(
     hidden_size = int(ckpt.get("hidden_size", 32))
     num_layers  = int(ckpt.get("num_layers",  1))
     dropout     = float(ckpt.get("dropout",   0.3))
-    threshold   = float(ckpt.get("threshold", 0.5))
+    # 체크포인트의 threshold는 학습 시 best_f1 기준으로 자동 선택된 값이다.
+    # 운영에서는 (R_live FRR vs attack block rate trade-off를 보고) 수동으로
+    # 정한 값을 써야 하는 경우가 있어 CLI에서 override할 수 있게 한다.
+    threshold = float(threshold) if threshold is not None else float(ckpt.get("threshold", 0.5))
     selected_features = ckpt.get("selected_features", [])
 
     # high_spoof_threshold(suspicious/spoof_detected 경계)는 명시값을 받지 못하면
@@ -123,8 +127,13 @@ def main() -> None:
         "--high-threshold", type=float, default=None,
         help="suspicious/spoof_detected 경계값. 미지정 시 max(threshold*1.3, 0.55) 사용.",
     )
+    parser.add_argument(
+        "--threshold", type=float, default=None,
+        help="real_safe/suspicious 경계값(=분류 threshold). 미지정 시 체크포인트에 저장된 "
+             "(보통 best_f1 자동선택) 값을 사용. 운영 trade-off에 따라 수동 override 가능.",
+    )
     args = parser.parse_args()
-    export(args.checkpoint, args.output, args.meta, args.high_threshold)
+    export(args.checkpoint, args.output, args.meta, args.high_threshold, args.threshold)
 
 
 if __name__ == "__main__":
