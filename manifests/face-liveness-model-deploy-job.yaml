@@ -1,0 +1,78 @@
+# =============================================================================
+# face-liveness-model-deploy-job.yaml
+#
+# model-store/facial_recognition/current/ (로컬, git에는 안 들어가는 바이너리)를
+# facial-recognition-model-store-pvc 에 반영하는 Job.
+#
+# 전제: 모델 파일(onnx+joblib+metadata, 약 25KB)을 담은 ConfigMap이 먼저
+# 존재해야 한다 — ConfigMap은 git에 커밋하지 않고 매번 로컬 파일에서 생성한다.
+#
+#   kubectl create configmap face-liveness-model-v3-w8 \
+#     --from-file=face_liveness.onnx=ml-pipeline/model-store/facial_recognition/current/face_liveness.onnx \
+#     --from-file=seq_scaler.joblib=ml-pipeline/model-store/facial_recognition/current/seq_scaler.joblib \
+#     --from-file=metadata.json=ml-pipeline/model-store/facial_recognition/current/metadata.json \
+#     -n argo
+#
+# 적용:
+#   kubectl apply -f manifests/face-liveness-model-deploy-job.yaml
+#   kubectl logs -f job/face-liveness-model-deploy -n argo
+#
+# 재실행 시 (다음 버전 모델 promote):
+#   kubectl delete job face-liveness-model-deploy -n argo --ignore-not-found
+#   (ConfigMap을 새 모델 파일로 다시 만든 뒤) kubectl apply -f ...
+# =============================================================================
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: face-liveness-model-deploy
+  namespace: argo
+  labels:
+    app: face-liveness-api
+    component: model-deploy
+spec:
+  ttlSecondsAfterFinished: 600  # 10분 후 자동 삭제
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: face-liveness-api
+        component: model-deploy
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: copy-model
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /model-store/facial_recognition/current
+              cp -v /model-src/face_liveness.onnx  /model-store/facial_recognition/current/face_liveness.onnx
+              cp -v /model-src/seq_scaler.joblib    /model-store/facial_recognition/current/seq_scaler.joblib
+              cp -v /model-src/metadata.json        /model-store/facial_recognition/current/metadata.json
+              echo "--- 복사 완료 ---"
+              ls -la /model-store/facial_recognition/current/
+              echo "--- metadata.json ---"
+              cat /model-store/facial_recognition/current/metadata.json
+          volumeMounts:
+            - name: model-src
+              mountPath: /model-src
+              readOnly: true
+            - name: model-store
+              mountPath: /model-store
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+      volumes:
+        - name: model-src
+          configMap:
+            name: face-liveness-model-v3-w8
+        - name: model-store
+          persistentVolumeClaim:
+            claimName: facial-recognition-model-store-pvc
