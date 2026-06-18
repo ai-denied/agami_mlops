@@ -1,12 +1,13 @@
 """
 얼굴 활성도(liveness) 추론 API Pydantic 스키마.
 
-입력 피처 순서 (20개, selected_features):
+입력 피처 순서 (20개, v3 — 상대좌표 + 시간정규화. 현재 promote된 모델의
+selected_features와 동일해야 한다, model-store/facial_recognition/current/metadata.json 참고):
   ear, mar, smile_w,
-  nose_x, nose_y, cx, cy,
+  nose_x_rel, nose_y_rel, cx_rel, cy_rel,
   roll, yaw, pitch,
-  nose_dx, nose_dy, center_dx, center_dy, nose_speed,
-  ear_velocity, mar_velocity, yaw_velocity, pitch_velocity, roll_velocity
+  nose_dx_tn, nose_dy_tn, center_dx_tn, center_dy_tn, nose_speed_tn,
+  ear_vel_tn, mar_vel_tn, yaw_vel_tn, pitch_vel_tn, roll_vel_tn
 """
 
 from __future__ import annotations
