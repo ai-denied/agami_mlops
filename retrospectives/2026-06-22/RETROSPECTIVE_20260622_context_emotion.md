@@ -2,15 +2,14 @@
 
 **일자**: 2026-06-22
 **담당**: agami MLOps
-**선행 문서**: [RETROSPECTIVE_20260617_context_emotion.md](../2026-06-17/RETROSPECTIVE_20260617_context_emotion.md) (Day 2, 자동검수 신뢰도 스코어링까지)
+**선행 문서**: [RETROSPECTIVE_20260621_context_emotion.md](../2026-06-21/RETROSPECTIVE_20260621_context_emotion.md) (Day 5, 감정 14종+상황 7종 최종 확정, Qwen 재검증 MCQ 큐 생성, 로컬 Qwen2.5-VL-3B 실행은 디스크 용량으로 보류)
 
-> Day 3~5(2026-06-18, 06-19, 06-21)의 작업 — 사람 검수 워크플로우 전환,
-> EMOTIC 원본 라벨 복원, 14클래스 최종 확정, Qwen 재검증 큐 생성 등 —도
-> 실제로 있었지만, **그 사이 pod가 리셋되면서 retrospectives 파일 자체가
-> 기록되지 못한 채 소실됐다.** 다행히 작업자가 별도로 텍스트로 남겨뒀던
-> Day4/5 회고록 본문이 있어 이번 작업의 스펙으로 그대로 활용했다. 아래는
-> 그 텍스트를 근거로 **`ml-pipeline/context_emotion/`을 통째로 재구축한**
-> 오늘 하루 기록이다.
+> Day 3~5(2026-06-18, 06-19, 06-21)의 retrospectives 파일은 pod가
+> 리셋되면서 한 번 통째로 소실됐었다. 다행히 작업자가 별도로 텍스트로
+> 남겨뒀던 본문이 있어, 오늘 작업 중 그 텍스트 그대로 날짜별 파일로
+> 복원했다(Day3: 06-18, Day4: 06-19, Day5: 06-21). 이번 Day 6는 그
+> 복원된 Day5 문서를 스펙으로 삼아 **`ml-pipeline/context_emotion/`을
+> 통째로 재구축한** 기록이다.
 
 ---
 
