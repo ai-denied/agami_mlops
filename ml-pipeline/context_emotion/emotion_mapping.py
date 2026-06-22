@@ -7,15 +7,15 @@ captcha_bank_human_reviewed.csv, qwen_attack_results.csv, ...) was lost
 when the pod was reset. See RECONSTRUCTION_NOTES.md in this directory
 for exactly what could and could not be reproduced.
 
-Final classes - FIXED as of 2026-06-22, for the context_emotion_train_dataset_v1
-build (supersedes the earlier 15-emotion/7-situation draft; see
-RECONSTRUCTION_NOTES.md "2026-06-22 스키마 고정" section for why empathy was
-dropped and everyday was reinstated):
+Final classes - FIXED as of 2026-06-22 (see RECONSTRUCTION_NOTES.md
+"2026-06-22 스키마 고정" / "everyday 제거" sections for the full history -
+empathy was dropped, everyday was briefly reinstated then removed again
+since no data source ever populates it):
   emotion 14:    happiness, calm, anticipation, affection, anger, fear,
                  sadness, disconnection, suffering, aversion,
                  embarrassment, confidence, confusion, yearning
-  situation 8:   conflict, danger, everyday, loss_absence, pressure,
-                 safety, teasing, vanity
+  situation 7:   conflict, danger, loss_absence, pressure, safety,
+                 teasing, vanity
 """
 
 EMOTION_CLASSES = [
@@ -25,7 +25,7 @@ EMOTION_CLASSES = [
 ]
 
 SITUATION_CLASSES = [
-    "conflict", "danger", "everyday", "loss_absence", "pressure", "safety",
+    "conflict", "danger", "loss_absence", "pressure", "safety",
     "teasing", "vanity",
 ]
 

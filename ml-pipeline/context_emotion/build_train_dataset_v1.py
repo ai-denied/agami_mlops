@@ -287,11 +287,11 @@ def main():
     excluded_by_source = Counter(r["source"] for r in excluded)
 
     dist_lines = ["# context_emotion_label_distribution_v1", ""]
-    dist_lines += ["## 감정 14종별 건수 (최종 학습셋)", ""]
+    dist_lines += [f"## 감정 {len(EMOTION_CLASSES)}종별 건수 (최종 학습셋)", ""]
     for cls in EMOTION_CLASSES:
         flag = " (low_resource)" if cls in low_resource_classes else ""
         dist_lines.append(f"- {cls}: {emotion_counts.get(cls, 0)}{flag}")
-    dist_lines += ["", "## 상황 8종별 건수 (최종 학습셋)", ""]
+    dist_lines += ["", f"## 상황 {len(SITUATION_CLASSES)}종별 건수 (최종 학습셋)", ""]
     for cls in SITUATION_CLASSES:
         dist_lines.append(f"- {cls}: {situation_counts.get(cls, 0)}")
     dist_lines += ["", "## 감정 x 상황 조합별 건수", ""]
