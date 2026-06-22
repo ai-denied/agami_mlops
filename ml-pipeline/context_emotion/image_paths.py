@@ -58,3 +58,28 @@ def resolve_manual_path(folder, filename):
     if os.path.isfile(candidate) and _verify_decodes(candidate):
         return candidate
     return None
+
+
+def inspect_image(path):
+    """Width/height + two hashes for an already-resolved, already-decodable
+    image path: content_hash (exact-duplicate detection across the
+    mirrored/duplicated EMOTIC directories) and perceptual_hash (catches
+    re-encoded/resized near-duplicates that have a different content_hash)."""
+    import hashlib
+
+    import imagehash
+
+    with open(path, "rb") as f:
+        data = f.read()
+    content_hash = hashlib.sha256(data).hexdigest()
+
+    with Image.open(path) as img:
+        width, height = img.size
+        perceptual_hash = str(imagehash.average_hash(img))
+
+    return {
+        "width": width,
+        "height": height,
+        "content_hash": content_hash,
+        "perceptual_hash": perceptual_hash,
+    }
