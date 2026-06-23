@@ -9,19 +9,25 @@ import json
 import os
 
 from context_emotion.common.constants import EMOTION_CLASSES, SITUATION_CLASSES
+from context_emotion.deployment.model_store import sha256_of
 
 VERSION = "v_test"
 
 
-def write_valid_candidate_inputs(dir_path: str, version: str = VERSION) -> dict:
+def write_valid_candidate_inputs(dir_path: str, version: str = VERSION, onnx_bytes: bytes = None) -> dict:
     """Writes the 5 *input* files (not manifest.json - package_emotion_model.py
     generates that) package_emotion_model.py expects via --onnx/--metadata/...
-    Returns the dict of paths to pass to package()."""
+    Returns the dict of paths to pass to package().
+
+    onnx_bytes lets a test write a *different* mock onnx file than the one
+    evaluation_result.json's onnx_sha256 was computed from, to exercise
+    validate_onnx_hash_consistency()'s mismatch case."""
     os.makedirs(dir_path, exist_ok=True)
 
     onnx_path = os.path.join(dir_path, "model.onnx")
     with open(onnx_path, "wb") as f:
-        f.write(b"not a real onnx file - tests use skip_validate=True / mock onnxruntime")
+        f.write(onnx_bytes or b"not a real onnx file - tests use skip_validate=True / mock onnxruntime")
+    onnx_sha256 = sha256_of(onnx_path)
 
     metadata_path = os.path.join(dir_path, "metadata.json")
     with open(metadata_path, "w", encoding="utf-8") as f:
@@ -52,7 +58,7 @@ def write_valid_candidate_inputs(dir_path: str, version: str = VERSION) -> dict:
 
     evaluation_result_path = os.path.join(dir_path, "evaluation_result.json")
     with open(evaluation_result_path, "w", encoding="utf-8") as f:
-        json.dump(mock_evaluation_result(version), f)
+        json.dump(mock_evaluation_result(version, onnx_sha256=onnx_sha256), f)
 
     return {
         "onnx": onnx_path,
@@ -63,10 +69,16 @@ def write_valid_candidate_inputs(dir_path: str, version: str = VERSION) -> dict:
     }
 
 
-def mock_evaluation_result(version: str, overall_macro_f1: float = 0.70, per_class_overrides: dict = None) -> dict:
+def mock_evaluation_result(version: str, overall_macro_f1: float = 0.70, per_class_overrides: dict = None,
+                            onnx_sha256: str = "0" * 64) -> dict:
     """A syntactically valid evaluation_result.json with made-up-but-labeled-
     as-mock numbers, used only to exercise compare/promotion_gate logic in
-    tests - never written by production code without a real model behind it."""
+    tests - never written by production code without a real model behind it.
+
+    onnx_sha256 defaults to a dummy hash - fine for test_compare_gate.py
+    (calls promotion_gate.decide() directly, which never checks the hash),
+    but write_valid_candidate_inputs() always overrides it with the real
+    hash of the mock onnx file it writes, since package()/promote() do check it."""
     per_class = {
         cls: {"precision": 0.7, "recall": 0.7, "f1": 0.7, "support": 50}
         for cls in EMOTION_CLASSES
@@ -78,6 +90,7 @@ def mock_evaluation_result(version: str, overall_macro_f1: float = 0.70, per_cla
     return {
         "version": version,
         "evaluated_at": "2026-07-01T00:00:00",
+        "onnx_sha256": onnx_sha256,
         "eval_set": {"name": "mock:test", "size": 700, "source_path": "mock"},
         "overall": {"accuracy": overall_macro_f1, "macro_f1": overall_macro_f1, "weighted_f1": overall_macro_f1},
         "per_class": per_class,

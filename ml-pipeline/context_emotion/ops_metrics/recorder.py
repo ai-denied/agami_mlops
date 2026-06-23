@@ -35,8 +35,19 @@ class DailyMetrics:
 
 def record_daily_metrics(metrics: DailyMetrics, path: Optional[str] = None) -> str:
     """TODO: 실제 운영 코드(서빙 측)에서 하루 끝에 호출해야 함 - 지금은
-    호출자가 없다. path를 None으로 두면 runtime_contract.yaml 기본 경로."""
+    호출자가 없다. path를 None으로 두면 runtime_contract.yaml 기본 경로.
+
+    학습 데이터 csv 경로와 같은 파일에 쓰지 않는다는 걸 코드로도 강제한다 -
+    MLOPS_OPERATION_DESIGN.md 5장의 "절대 같은 파일/정리 정책을 공유하지
+    않는다" 원칙이 설정 실수로 깨지는 걸 막는 마지막 방어선
+    (예: runtime_contract.yaml을 잘못 고쳐서 두 경로가 같아지는 경우)."""
     path = path or events_path()
+    training_csv = load_runtime_contract()["training_dataset"]["train_csv"]
+    if os.path.realpath(path) == os.path.realpath(training_csv):
+        raise ValueError(
+            f"ops_metrics.events_path가 학습 데이터 csv와 같은 경로입니다 ({path}). "
+            "runtime_contract.yaml 설정 오류로 보입니다 - 절대 같은 파일에 섞어 쓰면 안 됩니다."
+        )
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(asdict(metrics), ensure_ascii=False) + "\n")

@@ -48,7 +48,7 @@ def rollback(
     if not os.path.isdir(target_dir):
         raise FileNotFoundError(f"archive를 찾을 수 없습니다: {target_dir}")
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")  # microseconds - see promote_model.py for why
     print("=" * 60)
     print("  context_emotion model-store ROLLBACK")
     print("=" * 60)
@@ -118,9 +118,32 @@ def main():
             print(f"archive가 비어 있습니다: {archive_dir}")
         else:
             print(f"archive ({len(archives)}개, 최신순):")
+            print(f"{'NAME':<40} {'metadata.json version':<20} {'promoted_at'}")
             for a in archives:
-                print(f"  {a}")
+                # 디렉터리 이름의 {old_version} 부분은 promote_model.py가 그때
+                # current였던 모델의 버전을 적은 것 - 'pre_rollback'이면 진짜
+                # 모델 버전이 아니라 "rollback 직전 current 스냅샷"이라는 뜻이니
+                # metadata.json을 직접 읽어서 실제 버전을 보여준다 (디렉터리
+                # 이름만 보고 고르면 헷갈릴 수 있음).
+                meta_path = os.path.join(archive_dir, a, "metadata.json")
+                version = promoted_at = "?"
+                if os.path.isfile(meta_path):
+                    try:
+                        meta = model_store.load_json(meta_path)
+                        version = meta.get("version", "?")
+                        promoted_at = meta.get("promoted_at", "?")
+                    except Exception:
+                        pass
+                print(f"{a:<40} {version:<20} {promoted_at}")
         return
+
+    # mutually_exclusive_group(required=True)이 --list/--to-latest-archive/
+    # --to-archive 중 정확히 하나를 보장하므로, 여기 도달했다면
+    # --to-latest-archive 또는 --to-archive 둘 중 하나다. archive_name=None은
+    # rollback()에게 "가장 최근 archive를 써라"라는 뜻 - --to-latest-archive일
+    # 때도 args.to_archive가 그냥 None이라 같은 분기를 타지만, 의도를
+    # 명시적으로 남겨서 나중에 그룹 옵션이 늘어나도 헷갈리지 않게 한다.
+    assert args.to_latest_archive or args.to_archive, "argparse mutually_exclusive_group(required=True) 위반"
 
     try:
         rollback(

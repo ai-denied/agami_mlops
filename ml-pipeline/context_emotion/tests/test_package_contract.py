@@ -57,6 +57,40 @@ class TestPackageContract(unittest.TestCase):
             self.assertIn("emotion_classes", str(ctx.exception))
             self.assertFalse(os.path.isdir(output_dir), "후보 생성 자체가 막혀야 함 (요구사항)")
 
+    def test_onnx_hash_mismatch_blocks_candidate_creation(self):
+        """evaluation_result.json must describe THIS exact onnx file - if the
+        onnx changes after evaluate_candidate.py ran (or someone copy-pastes
+        an old evaluation_result.json next to a new onnx), packaging must
+        refuse rather than silently shipping untested numbers."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = os.path.join(tmp, "run_output")
+            inputs = write_valid_candidate_inputs(run_dir)
+
+            # swap in a different onnx after evaluation_result.json was written
+            with open(inputs["onnx"], "wb") as f:
+                f.write(b"a completely different (and untested) onnx file")
+
+            output_dir = os.path.join(tmp, "candidates", VERSION)
+            with self.assertRaises(ValueError) as ctx:
+                package_emotion_model.package(**inputs, version=VERSION, output_dir=output_dir)
+            self.assertIn("onnx_sha256", str(ctx.exception))
+            self.assertFalse(os.path.isdir(output_dir), "후보 생성 자체가 막혀야 함")
+
+    def test_version_mismatch_blocks_candidate_creation(self):
+        """metadata.json's own 'version' field must agree with the
+        candidates/{version}/ directory name / --version flag - otherwise
+        current/metadata.json after promotion could silently disagree with
+        which candidate it actually came from."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = os.path.join(tmp, "run_output")
+            inputs = write_valid_candidate_inputs(run_dir, version="v_built_as")
+
+            output_dir = os.path.join(tmp, "candidates", "v_shipped_as")
+            with self.assertRaises(ValueError) as ctx:
+                package_emotion_model.package(**inputs, version="v_shipped_as", output_dir=output_dir)
+            self.assertIn("version", str(ctx.exception))
+            self.assertFalse(os.path.isdir(output_dir), "후보 생성 자체가 막혀야 함")
+
     def test_cannot_package_directly_into_current(self):
         with tempfile.TemporaryDirectory() as tmp:
             inputs = write_valid_candidate_inputs(os.path.join(tmp, "run_output"))

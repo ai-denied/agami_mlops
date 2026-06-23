@@ -97,7 +97,7 @@ def package(
         with open(os.path.join(staging_dir, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-        problems = model_store.validate_artifact_dir(staging_dir)
+        problems = model_store.validate_artifact_dir(staging_dir, expected_version=version)
         flat_problems = [p for plist in problems.values() for p in plist]
         if flat_problems:
             raise ValueError(
@@ -106,7 +106,15 @@ def package(
             )
 
         os.makedirs(os.path.dirname(final_dir), exist_ok=True)
-        shutil.copytree(staging_dir, final_dir)
+        try:
+            shutil.copytree(staging_dir, final_dir)
+        except Exception:
+            # 디스크 공간 부족 등으로 복사가 중간에 끊기면 candidates/{version}/에
+            # 검증을 통과한 것처럼 보이는 반쪽짜리 디렉터리가 남을 수 있다 -
+            # "검증 실패 시 후보 생성 자체를 막는다" 원칙을 끝까지 지키기 위해
+            # 실패하면 흔적을 지운다.
+            shutil.rmtree(final_dir, ignore_errors=True)
+            raise
 
     return final_dir
 

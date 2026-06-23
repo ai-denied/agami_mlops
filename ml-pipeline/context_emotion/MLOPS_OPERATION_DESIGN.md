@@ -32,7 +32,10 @@ compare_candidate, promote_model, run_model_update_pipeline}.py`. 이
    final_decision?
      |-- reject         -> 중단, 이유는 promotion_decision.json에 기록됨
      |-- manual_review   -> 중단, 사람이 promotion_decision.json 보고 판단
-     '-- promote
+     '-- promote   (※ required=false 게이트가 not_configured/fail이어도 promote될 수 있음 -
+                       이 경우 promotion_decision.json.warnings에 어떤 게이트가
+                       검증 안 됐는지 항상 남는다. attacker_proxy_resistance가
+                       대표적 - 지금은 required=false라 매번 promote에 끼어 있을 것)
               v
        [promote_model.py]         <- current를 archive/{timestamp}_{old_version}/로 백업
               |                       후 candidates/{version}/을 staging -> current로 원자적 교체
@@ -92,8 +95,29 @@ archive를 current로 되돌린다. flashlight에는 없던 부분 - 운영 중
    실행 결과 그대로. 직접 만들어서 넘기지 말 것 - 숫자가 실제 추론에서
    나온 게 아니면 compare 단계가 의미 없어진다.
 
-`scripts/validate_model_artifacts.py --dir <폴더>`로 패키징 전에
-미리 자가 점검 가능.
+### evaluation_result.json을 그냥 믿지 않는다
+
+evaluation_result.json은 `--onnx`/`--evaluation-result`로 **따로따로**
+넘기는 두 파일이라, 둘이 실제로 같은 모델을 가리키는지는 아무도 보장해
+주지 않는다 - 예전 모델의 evaluation_result.json을 새 onnx와 같이
+넘기는 실수가 가능했다. 그래서 `package_emotion_model.py` /
+`promote_model.py` / `compare_candidate.py`는 매번
+(`deployment/model_store.py`를 통해) 두 가지를 같이 검증한다:
+
+- **`onnx_hash_consistency`**: `evaluate_candidate.py`가 평가에 쓴 정확히
+  그 onnx 파일의 sha256(`evaluation_result.json.onnx_sha256`)이 지금
+  패키징/승격하려는 `model.onnx`의 sha256과 같은지.
+- **`version_consistency`**: `metadata.json.version` /
+  `evaluation_result.json.version`이 candidates 디렉터리 이름
+  (`--version`)과 모두 일치하는지.
+
+둘 중 하나라도 안 맞으면 후보 생성/승격 자체가 막힌다 (`tests/test_package_contract.py`의
+`test_onnx_hash_mismatch_blocks_candidate_creation`,
+`test_version_mismatch_blocks_candidate_creation` 참고).
+
+`scripts/validate_model_artifacts.py --dir <폴더> [--expected-version <버전>]`로
+패키징 전에 미리 자가 점검 가능 (`--expected-version`을 주면 위 두
+검증까지 같이 돈다).
 
 ---
 

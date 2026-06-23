@@ -85,6 +85,24 @@ class TestPromotionGate(unittest.TestCase):
         self.assertEqual(decision["gates"]["artifact_integrity"], "fail")
         self.assertEqual(decision["final_decision"], "reject")
 
+    def test_attacker_proxy_not_configured_promotes_but_warns_loudly(self):
+        """The default policy ships attacker_proxy_gate.required=false (no
+        proxy model/eval pool exists yet - see promotion_policy.yaml TODOs).
+        That must not silently look like a clean pass: promotion proceeds,
+        but a human reading the decision must see, unambiguously, that
+        adversarial robustness was never checked for this promotion."""
+        current = mock_evaluation_result("v0", overall_macro_f1=0.65)
+        candidate = mock_evaluation_result("v1", overall_macro_f1=0.70)
+
+        decision = promotion_gate.decide("v0", "v1", current, candidate, _policy())
+
+        self.assertEqual(decision["gates"]["attacker_proxy_resistance"], "not_configured")
+        self.assertEqual(decision["final_decision"], "promote")
+        self.assertTrue(
+            any("attacker_proxy_resistance" in w for w in decision["warnings"]),
+            f"expected a warning about the unchecked attacker_proxy gate, got: {decision['warnings']}",
+        )
+
     def test_no_current_model_yet_still_evaluates_candidate_alone(self):
         candidate = mock_evaluation_result("v1", overall_macro_f1=0.70)
         decision = promotion_gate.decide("none", "v1", None, candidate, _policy())

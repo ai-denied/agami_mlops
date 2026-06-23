@@ -35,6 +35,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
+from context_emotion.common.constants import EMOTION_CLASSES  # noqa: E402
+from context_emotion.deployment.model_store import sha256_of  # noqa: E402
 from context_emotion.evaluation.attacker_proxy_eval import evaluate_attacker_proxy  # noqa: E402
 from context_emotion.ops_metrics.recorder import latest_for_version  # noqa: E402
 
@@ -157,12 +159,20 @@ def evaluate(
     artifact_integrity = {
         "onnx_loadable": True,
         "input_output_match": True,
-        "label_schema_match": classes == label_schema.get("emotion_classes"),
+        # classes came straight from this label_schema.json - checking it
+        # against itself would always be True. Check the canonical schema
+        # instead (this is what actually matters - see
+        # contracts/label_schema_contract.md).
+        "label_schema_match": classes == EMOTION_CLASSES,
     }
 
     return {
         "version": version,
         "evaluated_at": datetime.now().isoformat(),
+        # Recorded so package_emotion_model.py / promote_model.py can refuse to
+        # ship this evaluation_result.json next to a *different* onnx file -
+        # see deployment/model_store.py:validate_onnx_hash_consistency().
+        "onnx_sha256": sha256_of(onnx_path),
         "eval_set": {"name": f"{os.path.basename(eval_csv)}:{eval_split}", "size": len(rows), "source_path": eval_csv},
         "overall": overall,
         "per_class": per_class,

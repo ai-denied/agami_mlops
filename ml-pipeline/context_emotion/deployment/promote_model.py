@@ -42,6 +42,7 @@ def _validate_onnx(onnx_path: str, metadata_path: str, contract: dict) -> None:
         return
 
     metadata = model_store.load_json(metadata_path)
+    input_spec = metadata.get("input_spec", {})
     output_spec = metadata.get("output_spec", {})
     num_classes = (output_spec.get("shape") or [None, None])[-1]
 
@@ -51,8 +52,16 @@ def _validate_onnx(onnx_path: str, metadata_path: str, contract: dict) -> None:
     if onnx_contract["input_name"] not in input_names:
         raise ValueError(f"ONNX 입력 이름 불일치: expected '{onnx_contract['input_name']}', got {input_names}")
 
+    # 이전 버전은 224x224를 하드코딩해서, metadata.json이 다른 입력 크기를
+    # 선언해도 무시하고 틀린 더미 입력을 흘려보내는 버그가 있었음 - 실제
+    # 입력 크기와 다르면 ONNX가 shape mismatch로 죽거나(=정상 모델이 검증
+    # 실패로 막힘), dynamic shape를 받는 모델이면 조용히 틀린 크기로
+    # "통과"해버려서 검증 자체가 무의미해짐. smoke_test_model.py와 동일하게
+    # metadata.json의 input_spec.shape에서 실제 크기를 읽는다.
+    if not input_spec.get("shape"):
+        raise ValueError("metadata.json input_spec.shape가 없어 ONNX 검증용 더미 입력을 만들 수 없습니다")
     rng = np.random.default_rng(42)
-    shape = [1, 3, 224, 224]  # batch=1 dummy - real spatial dims come from metadata if it ever varies
+    shape = [1 if d == "batch" else int(d) for d in input_spec["shape"]]
     dummy = rng.standard_normal(shape).astype("float32")
     out = session.run([onnx_contract["output_name"]], {onnx_contract["input_name"]: dummy})[0]
 
@@ -125,7 +134,11 @@ def promote(
     contract = model_store.load_runtime_contract()
     store_root, candidates_dir, current_dir, archive_dir = model_store.resolve_store_paths(store_root_override, contract)
     cand_dir = model_store.candidate_dir(version, candidates_dir)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 마이크로초까지 포함 - 초 단위만 쓰면 같은 초 안에 두 번 promote/rollback이
+    # 돌 때 archive/staging 디렉터리 이름이 겹쳐서 copytree/rename이
+    # FileExistsError로 실패할 수 있음 (사람이 수동으로 두 번 빠르게 실행하거나
+    # 자동화에서 재시도할 때 실제로 발생 가능).
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     print("=" * 60)
     print("  context_emotion model-store 승격")
@@ -138,7 +151,7 @@ def promote(
     print()
 
     print("[1/5] 후보 contract 검증")
-    problems = model_store.validate_artifact_dir(cand_dir)
+    problems = model_store.validate_artifact_dir(cand_dir, expected_version=version)
     flat_problems = [p for plist in problems.values() for p in plist]
     if flat_problems:
         raise FileNotFoundError(

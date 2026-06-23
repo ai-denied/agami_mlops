@@ -29,6 +29,11 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Human-readable explanation per gate, always non-empty even on promote (e.g. 'overall_quality: pass - macro_f1 0.71 >= current 0.68')."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Non-blocking gate problems (required=false in promotion_policy.yaml, e.g. attacker_proxy_resistance is not_configured). Can be non-empty even when final_decision is 'promote' - this is the only place that fact is surfaced, since 'gates' alone reads as if not_configured were harmless."
     }
   }
 }

@@ -148,18 +148,72 @@ def validate_preprocessing_config(preprocessing_config: dict, contract: Optional
     ]
 
 
-def validate_artifact_dir(artifact_dir: str) -> Dict[str, List[str]]:
+def validate_version_consistency(expected_version: str, metadata: dict, evaluation_result: Optional[dict]) -> List[str]:
+    """Nothing else checks that metadata.json's own 'version' field, an
+    evaluation_result.json's own 'version' field, and the candidates/{X}/
+    directory name (X) actually agree. Without this, a stale
+    evaluation_result.json from a different model could get packaged
+    alongside a brand-new onnx under a directory name that matches
+    neither - compare_candidate.py would still "work" (it only ever reads
+    the directory name) and nobody would notice."""
+    problems = []
+    meta_version = metadata.get("version")
+    if meta_version != expected_version:
+        problems.append(
+            f"metadata.json version ({meta_version!r}) != candidate directory/--version ({expected_version!r})"
+        )
+    if evaluation_result is not None:
+        eval_version = evaluation_result.get("version")
+        if eval_version != expected_version:
+            problems.append(
+                f"evaluation_result.json version ({eval_version!r}) != candidate directory/--version ({expected_version!r})"
+            )
+    return problems
+
+
+def validate_onnx_hash_consistency(onnx_path: str, evaluation_result: Optional[dict]) -> List[str]:
+    """evaluate_candidate.py records the sha256 of the exact onnx file it
+    ran inference against (evaluation_result.json's onnx_sha256). If the
+    onnx being packaged/promoted doesn't match, evaluation_result.json
+    describes a DIFFERENT model than the one about to go live - the
+    numbers in it (and any compare_candidate.py gate decision based on
+    them) would be meaningless. This is the main defense against
+    "evaluation_result.json만 믿으면 안 되는" cases."""
+    if evaluation_result is None:
+        return ["cannot check onnx hash: evaluation_result.json missing/invalid"]
+
+    recorded_hash = evaluation_result.get("onnx_sha256")
+    if not recorded_hash:
+        return ["evaluation_result.json has no onnx_sha256 - was it produced by an older evaluate_candidate.py?"]
+
+    actual_hash = sha256_of(onnx_path)
+    if actual_hash != recorded_hash:
+        return [
+            f"model.onnx sha256 ({actual_hash[:12]}...) != evaluation_result.json onnx_sha256 ({recorded_hash[:12]}...) "
+            f"- this evaluation_result.json was NOT produced from this exact onnx file"
+        ]
+    return []
+
+
+def validate_artifact_dir(artifact_dir: str, expected_version: Optional[str] = None) -> Dict[str, List[str]]:
     """Full contract validation of a candidate/current directory.
     Returns {category: [problem, ...]} - empty lists mean that category passed.
-    Used by package_emotion_model.py, validate_model_artifacts.py and the
-    artifact_integrity gate in promotion_gate.py.
+    Used by package_emotion_model.py, validate_model_artifacts.py,
+    promote_model.py and the artifact_integrity gate in promotion_gate.py.
 
     Each category only depends on its own file (plus metadata.json for
     label_schema's cross-check) - so a modeling team can self-check their
     4 core files with validate_model_artifacts.py before evaluation_result.json
     /manifest.json even exist (see MLOPS_OPERATION_DESIGN.md section 9 step 1).
     A missing file fails that file's own category instead of being silently
-    skipped as a false pass."""
+    skipped as a false pass.
+
+    expected_version is optional precisely so validate_model_artifacts.py's
+    pre-packaging self-check (run before a version name is even decided)
+    doesn't have to supply one - but package_emotion_model.py / promote_model.py
+    / compare_candidate.py always pass it, since that's the only point where
+    "does this onnx/metadata/evaluation_result actually agree on which
+    version this is" can be caught."""
     missing = set(check_required_files(artifact_dir))
     result: Dict[str, List[str]] = {"required_files": sorted(missing)}
 
@@ -184,9 +238,26 @@ def validate_artifact_dir(artifact_dir: str) -> Dict[str, List[str]]:
         preprocessing_config = load_json(os.path.join(artifact_dir, "preprocessing_config.json"))
         result["preprocessing_config"] = validate_preprocessing_config(preprocessing_config)
 
+    evaluation_result = None
+    if "evaluation_result.json" not in missing:
+        evaluation_result = load_json(os.path.join(artifact_dir, "evaluation_result.json"))
+
+    if expected_version is not None:
+        if metadata is None:
+            result["version_consistency"] = ["cannot check version consistency: metadata.json missing/invalid"]
+        else:
+            result["version_consistency"] = validate_version_consistency(expected_version, metadata, evaluation_result)
+
+        if "model.onnx" in missing:
+            result["onnx_hash_consistency"] = ["cannot check onnx hash: model.onnx missing - see required_files"]
+        else:
+            result["onnx_hash_consistency"] = validate_onnx_hash_consistency(
+                os.path.join(artifact_dir, "model.onnx"), evaluation_result
+            )
+
     return result
 
 
-def artifact_dir_is_valid(artifact_dir: str) -> bool:
-    problems = validate_artifact_dir(artifact_dir)
+def artifact_dir_is_valid(artifact_dir: str, expected_version: Optional[str] = None) -> bool:
+    problems = validate_artifact_dir(artifact_dir, expected_version)
     return all(len(v) == 0 for v in problems.values())

@@ -25,6 +25,8 @@ compare 단계의 final_decision이 'promote'가 아니면(reject/manual_review)
 
     # promote까지는 가지 말고 evaluate/package/compare만 보고 싶을 때
     ... --dry-run
+    # 주의: --dry-run이어도 evaluate/package/compare는 실제로 실행됨 (promote만 모킹).
+    # candidates/{version}/이 실제로 생성되므로 같은 --version을 재사용할 수 없다.
 """
 import argparse
 import os
@@ -44,9 +46,21 @@ def _step(n: int, total: int, name: str) -> None:
 
 def run_pipeline(args) -> int:
     """반환값: compare_candidate.py와 동일한 의미의 종료 코드
-    (0=promote 완료, 1=reject, 2=manual_review)."""
+    (0=promote 완료, 1=reject, 2=manual_review).
+
+    --dry-run은 promote_model.py 호출 한 군데만 dry-run으로 넘긴다 (current는
+    안 바뀜). evaluate_candidate/package_emotion_model/compare_candidate는
+    --dry-run이어도 항상 실제로 실행된다 - 즉 candidates/{version}/이
+    실제로 디스크에 생성되고 evaluation_result.json도 실제 ONNX 추론
+    결과로 채워진다. "dry-run"이라는 이름만 보고 아무것도 안 남는다고
+    생각하면 안 된다 - 같은 --version으로 다시 돌리면 package 단계에서
+    "이미 존재합니다" 에러가 난다 (package_emotion_model.py 참고)."""
     total_steps = 6
     eval_out_path = os.path.join(os.path.dirname(args.onnx), "evaluation_result.json")
+
+    if args.dry_run:
+        print("[DRY-RUN] promote 단계만 모킹됩니다. evaluate/package/compare는 실제로 실행되어")
+        print(f"          candidates/{args.version}/이 디스크에 실제로 생성됩니다 (재사용 불가한 버전명이 소모됨).")
 
     _step(1, total_steps, "evaluate_candidate")
     eval_result = evaluate_candidate.evaluate(

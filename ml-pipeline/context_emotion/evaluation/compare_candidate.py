@@ -40,9 +40,11 @@ def run_compare(version: str) -> dict:
     current_dir = model_store.CURRENT_DIR
 
     candidate_eval = _load_evaluation_result(candidate_dir, f"candidate {version}")
+    print(f"candidate eval_set: {candidate_eval['eval_set']['name']} ({candidate_eval['eval_set']['size']} rows)")
     try:
         current_eval = _load_evaluation_result(current_dir, "current")
         current_version = model_store.load_json(os.path.join(current_dir, "metadata.json")).get("version", "unknown")
+        print(f"current eval_set:   {current_eval['eval_set']['name']} ({current_eval['eval_set']['size']} rows)")
     except FileNotFoundError:
         # 첫 번째 모델이라 current가 아예 없는 경우 - 정상 상황, current_eval=None으로 진행
         current_eval = None
@@ -50,7 +52,7 @@ def run_compare(version: str) -> dict:
 
     # 패키지 전체 contract(필수 파일/metadata/label_schema/preprocessing_config) 재검증.
     # evaluate_candidate.py의 artifact_integrity는 onnx/label만 보므로 더 넓은 검증을 여기서 보강한다.
-    package_problems = model_store.validate_artifact_dir(candidate_dir)
+    package_problems = model_store.validate_artifact_dir(candidate_dir, expected_version=version)
     flat_package_problems = [p for plist in package_problems.values() for p in plist]
     if flat_package_problems:
         candidate_eval = dict(candidate_eval)
@@ -88,6 +90,13 @@ def print_decision(decision: dict) -> None:
     print("  사유:")
     for reason in decision["reasons"]:
         print(f"    - {reason}")
+
+    if decision.get("warnings"):
+        print()
+        print("  ⚠ 경고 (승격을 막지는 않지만 검증 안 된 부분):")
+        for warning in decision["warnings"]:
+            print(f"    - {warning}")
+
     print()
     print(f"  최종 판정: {decision['final_decision'].upper()}")
     print(f"  기록 위치: {decision.get('_decision_path')}")

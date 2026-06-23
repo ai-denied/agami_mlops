@@ -3,10 +3,14 @@
   "title": "context_emotion evaluation_result",
   "description": "Output of evaluation/evaluate_candidate.py. Stored as evaluation_result.json inside both candidates/{version}/ and current/. compare_candidate.py reads exactly two of these (current + candidate) and never recomputes metrics itself.",
   "type": "object",
-  "required": ["version", "evaluated_at", "eval_set", "overall", "per_class", "human_ambiguity", "attacker_proxy", "artifact_integrity"],
+  "required": ["version", "evaluated_at", "onnx_sha256", "eval_set", "overall", "per_class", "human_ambiguity", "attacker_proxy", "artifact_integrity"],
   "properties": {
     "version": { "type": "string" },
     "evaluated_at": { "type": "string", "format": "date-time" },
+    "onnx_sha256": {
+      "type": "string",
+      "description": "sha256 of the exact model.onnx this evaluation ran against. deployment/model_store.py:validate_onnx_hash_consistency() refuses to package/promote if this doesn't match the onnx being shipped - without it, nothing stops a stale evaluation_result.json from riding along with an untested onnx file."
+    },
     "eval_set": {
       "type": "object",
       "required": ["name", "size", "source_path"],
