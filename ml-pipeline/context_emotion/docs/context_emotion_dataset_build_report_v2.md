@@ -10,14 +10,14 @@
 
 ## 필터링 / 샘플링 (작업 전후 건수)
 
-- candidate 26690 -> 필터 통과 22162 / 제외 4528
-- 필터 통과 22162 -> 샘플링 후 7752 (class_quota_exceeded 14410건)
+- candidate 26690 -> 필터 통과 22160 / 제외 4530
+- 필터 통과 22160 -> 샘플링 후 7752 (class_quota_exceeded 14408건)
 - 감정 클래스별 최대 800장 캡, low_resource(<300): ['aversion', 'embarrassment', 'sadness']
 
 ## split
 
-- split_group_id 6708개를 감정 라벨 기준 stratified 70/15/15(시드 13)로 분할, 그룹 내 모든 행은 같은 split
-- 최종 split별 건수: {'train': 5412, 'val': 1159, 'test': 1181}
+- split_group_id 6695개를 감정 라벨 기준 stratified 70/15/15(시드 13)로 분할, 그룹 내 모든 행은 같은 split
+- 최종 split별 건수: {'train': 5410, 'val': 1166, 'test': 1176}
 
 ## 최종 산출물 건수
 
