@@ -44,6 +44,26 @@ def format_bbox(bbox_str):
     return "[" + ",".join(str(v) for v in values) + "]"
 
 
+# Source EMOTIC bbox annotations that don't actually describe the image
+# at this path (one bbox aspect ratio doesn't match the image at all, the
+# other overshoots the image height well past the few-pixel rounding
+# noise seen elsewhere) - excluded rather than clipped, since clipping
+# would silently fabricate a plausible-looking but wrong box.
+BBOX_INVALID_SAMPLE_IDS = {
+    "emotic-a7caa73392",
+    "emotic-430281d7f3",
+}
+
+
+def clip_bbox(bbox_str, width, height):
+    x1, y1, x2, y2 = json.loads(bbox_str)
+    x1 = max(0.0, min(x1, width))
+    y1 = max(0.0, min(y1, height))
+    x2 = max(0.0, min(x2, width))
+    y2 = max(0.0, min(y2, height))
+    return "[" + ",".join(str(v) for v in (x1, y1, x2, y2)) + "]"
+
+
 def load_emotic_candidates(processed_dir, confidence_lookup):
     rows = []
     path = os.path.join(processed_dir, "captcha_bank_human_reviewed.csv")
@@ -128,6 +148,11 @@ def filter_and_inspect(rows):
         r["image_height"] = meta["height"] if meta else ""
         r["content_hash"] = meta["content_hash"] if meta else ""
         r["perceptual_hash"] = meta["perceptual_hash"] if meta else ""
+
+        if r["sample_id"] in BBOX_INVALID_SAMPLE_IDS:
+            reasons.append("bbox_invalid")
+        elif meta and r["target_person_bbox"]:
+            r["target_person_bbox"] = clip_bbox(r["target_person_bbox"], meta["width"], meta["height"])
         for k in ("provisional_emotion_raw", "situation_label_raw", "candidate_emotions_raw"):
             del r[k]
 
