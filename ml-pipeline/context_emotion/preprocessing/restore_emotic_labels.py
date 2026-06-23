@@ -4,22 +4,25 @@ Reconstruction of restore_original_emotic_labels.py (lost when the pod
 reset - see RECONSTRUCTION_NOTES.md). For every annotated person/bbox in
 the EMOTIC dataset, takes a majority vote (>=50% of that person's
 annotators) over the raw 26 EMOTIC categories, then maps the surviving
-categories onto the final 14-class emotion scheme via emotion_mapping.py.
+categories onto the final 14-class emotion scheme via common/constants.py.
 
 Usage:
-    python restore_emotic_labels.py \
+    python -m context_emotion.preprocessing.restore_emotic_labels \
         --annotations /workspace/data/context_emotion/emotic_dataset/Annotations/Annotations.mat \
-        --out-dir /workspace/data/context_emotion/processed
+        --out-dir /workspace/agami_mlops/ml-pipeline/context_emotion/label_pools
 """
 import argparse
 import csv
 import os
+import sys
 from collections import Counter
 
 import numpy as np
 import scipy.io as sio
 
-from emotion_mapping import EMOTIC_CATEGORY_TO_EMOTION
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+from context_emotion.common.constants import EMOTIC_CATEGORY_TO_EMOTION  # noqa: E402
 
 
 def to_list(x):

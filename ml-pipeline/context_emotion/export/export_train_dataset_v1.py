@@ -8,7 +8,7 @@ sample_id to avoid collisions across sources) plus a CSV whose image_path
 points at the new, flat layout.
 
 Usage:
-    python export_train_dataset_v1.py \
+    python -m context_emotion.export.export_train_dataset_v1 \
         --train-csv /workspace/data/context_emotion/processed/context_emotion_train_dataset_v1.csv \
         --out-dir /workspace/data/context_emotion/export_v1
 """

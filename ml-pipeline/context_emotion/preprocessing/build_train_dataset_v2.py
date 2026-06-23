@@ -9,8 +9,8 @@ are left blank with review_status='unreviewed' - no human has reviewed
 this reconstruction, so the dataset must not claim otherwise.
 
 Usage:
-    python build_train_dataset_v2.py \
-        --processed-dir /workspace/data/context_emotion/processed \
+    python -m context_emotion.preprocessing.build_train_dataset_v2 \
+        --processed-dir /workspace/agami_mlops/ml-pipeline/context_emotion/label_pools \
         --annotations /workspace/data/context_emotion/emotic_dataset/Annotations/Annotations.mat \
         --out-dir /workspace/data/context_emotion/processed
 """
@@ -19,16 +19,19 @@ import csv
 import json
 import os
 import random
+import sys
 from collections import Counter, defaultdict
 
-from build_train_dataset_v1 import (
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+from context_emotion.preprocessing.build_train_dataset_v1 import (  # noqa: E402
     build_emotic_confidence_lookup, sample_id_for,
     MAX_PER_EMOTION_CLASS, LOW_RESOURCE_THRESHOLD, SPLIT_RATIOS,
     MANUAL_LABEL_CONFIDENCE, RANDOM_SEED,
 )
-from emotion_mapping import EMOTION_CLASSES, SITUATION_CLASSES
-from image_paths import resolve_emotic_path, resolve_manual_path, inspect_image
-from normalize_label import normalize_emotion, normalize_situation
+from context_emotion.common.constants import EMOTION_CLASSES, SITUATION_CLASSES  # noqa: E402
+from context_emotion.common.image_paths import resolve_emotic_path, resolve_manual_path, inspect_image  # noqa: E402
+from context_emotion.common.normalize_label import normalize_emotion, normalize_situation  # noqa: E402
 
 DATA_ROOT = "/workspace/data/context_emotion"
 

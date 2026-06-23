@@ -1,7 +1,7 @@
 """Defensive label-string normalization for the v1 training dataset build.
 
 captcha_bank_human_reviewed.csv / manual_images_labeled.csv already store
-clean canonical class names (they were produced by emotion_mapping.py), so
+clean canonical class names (they were produced by common/constants.py), so
 in practice this layer fixes nothing on the current dataset - it exists so
 that case differences or known typos (doubt_confusion / doubt_confusning /
 "Doubt/Confusion", stray whitespace, etc.) in any future or external input
@@ -10,7 +10,7 @@ schema check in build_train_dataset_v1.py.
 """
 import re
 
-from emotion_mapping import EMOTION_CLASSES, SITUATION_CLASSES
+from context_emotion.common.constants import EMOTION_CLASSES, SITUATION_CLASSES
 
 _EMOTION_LOOKUP = {c: c for c in EMOTION_CLASSES}
 _SITUATION_LOOKUP = {c: c for c in SITUATION_CLASSES}

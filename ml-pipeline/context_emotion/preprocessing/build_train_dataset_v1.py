@@ -8,8 +8,8 @@ them, filters/validates/samples/splits, and writes its own v1-suffixed
 outputs.
 
 Usage:
-    python build_train_dataset_v1.py \
-        --processed-dir /workspace/data/context_emotion/processed \
+    python -m context_emotion.preprocessing.build_train_dataset_v1 \
+        --processed-dir /workspace/agami_mlops/ml-pipeline/context_emotion/label_pools \
         --annotations /workspace/data/context_emotion/emotic_dataset/Annotations/Annotations.mat \
         --out-dir /workspace/data/context_emotion/processed
 """
@@ -19,16 +19,19 @@ import hashlib
 import json
 import os
 import random
+import sys
 from collections import Counter, defaultdict
 
 import numpy as np
 import scipy.io as sio
 
-from emotion_mapping import EMOTION_CLASSES, SITUATION_CLASSES, \
-    EMOTIC_CATEGORY_TO_EMOTION, MANUAL_FOLDER_TO_LABELS, NO_SCHEMA_SLOT_FOLDERS
-from image_paths import resolve_emotic_path, resolve_manual_path
-from normalize_label import normalize_emotion, normalize_situation
-from restore_emotic_labels import annotator_category_lists, iter_people
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+from context_emotion.common.constants import EMOTION_CLASSES, SITUATION_CLASSES, \
+    EMOTIC_CATEGORY_TO_EMOTION, MANUAL_FOLDER_TO_LABELS, NO_SCHEMA_SLOT_FOLDERS  # noqa: E402
+from context_emotion.common.image_paths import resolve_emotic_path, resolve_manual_path  # noqa: E402
+from context_emotion.common.normalize_label import normalize_emotion, normalize_situation  # noqa: E402
+from context_emotion.preprocessing.restore_emotic_labels import annotator_category_lists, iter_people  # noqa: E402
 
 MAX_PER_EMOTION_CLASS = 800
 LOW_RESOURCE_THRESHOLD = 300

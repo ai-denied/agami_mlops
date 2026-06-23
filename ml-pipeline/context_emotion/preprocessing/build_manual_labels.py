@@ -3,21 +3,24 @@
 Reconstruction of the manual-image labeling step from the Day 4/5
 retrospectives (the original manual_images_labeled.csv was lost when the
 pod reset). Folder name -> (emotion_class, situation_class) comes from
-emotion_mapping.MANUAL_FOLDER_TO_LABELS, reverse-engineered to match the
+common.constants.MANUAL_FOLDER_TO_LABELS, reverse-engineered to match the
 documented final distribution (manual 감정 99건 / 상황 128건). See
 RECONSTRUCTION_NOTES.md for the despair folder, which stays unresolved -
 the original work depended on a Qwen attack run that no longer exists.
 
 Usage:
-    python build_manual_labels.py \
+    python -m context_emotion.preprocessing.build_manual_labels \
         --manual-dir /workspace/data/context_emotion/manual_images \
-        --out-dir /workspace/data/context_emotion/processed
+        --out-dir /workspace/agami_mlops/ml-pipeline/context_emotion/label_pools
 """
 import argparse
 import csv
 import os
+import sys
 
-from emotion_mapping import MANUAL_FOLDER_TO_LABELS, NO_SCHEMA_SLOT_FOLDERS
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+from context_emotion.common.constants import MANUAL_FOLDER_TO_LABELS, NO_SCHEMA_SLOT_FOLDERS  # noqa: E402
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
