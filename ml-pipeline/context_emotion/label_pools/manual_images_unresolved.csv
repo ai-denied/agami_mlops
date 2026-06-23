@@ -1,0 +1,5 @@
+source,folder,filename,emotion_class,situation_class,label_status,reviewer_note
+manual,empathy,context_120.jpg,,,unresolved,no_schema_slot_in_fixed_14_emotion_classes
+manual,empathy,context_121.jpg,,,unresolved,no_schema_slot_in_fixed_14_emotion_classes
+manual,empathy,context_126.jpg,,,unresolved,no_schema_slot_in_fixed_14_emotion_classes
+manual,empathy,context_193.jpg,,,unresolved,no_schema_slot_in_fixed_14_emotion_classes

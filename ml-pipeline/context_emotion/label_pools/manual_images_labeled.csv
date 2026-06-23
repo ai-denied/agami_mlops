@@ -1,0 +1,225 @@
+source,folder,filename,emotion_class,situation_class,label_status,reviewer_note
+manual,aggression,ChatGPT Image 2026년 5월 6일 오후 03_21_18.png,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_029.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_051.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_052.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_053.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_054.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_055.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_058.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_059.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_060.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_065.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_074.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,aggression,context_082.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,alienation,ChatGPT Image 2026년 5월 6일 오후 02_35_38.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,bittersweet,ChatGPT Image 2026년 5월 6일 오후 01_30_50.png,yearning,,reconstructed_approx,folder_name_based_reconstruction
+manual,bittersweet,ChatGPT Image 2026년 5월 6일 오후 01_32_14.png,yearning,,reconstructed_approx,folder_name_based_reconstruction
+manual,bittersweet,ChatGPT Image 2026년 5월 6일 오후 03_09_13.png,yearning,,reconstructed_approx,folder_name_based_reconstruction
+manual,bullying,context_185.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,ChatGPT Image 2026년 5월 6일 오전 11_33_04.png,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_517.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_519.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_521.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_522.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_525.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_527.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_532.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_533.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_534.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_535.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_538.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_540.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_543.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_546.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,concert,context_549.jpg,,conflict,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,ChatGPT Image 2026년 4월 30일 오후 01_33_29.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,ChatGPT Image 2026년 4월 30일 오후 12_53_06.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,ChatGPT Image 2026년 5월 6일 오전 10_46_20.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_041.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_042.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_043.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_372.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_374.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_379.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_387.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_406.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_408.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_409.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_410.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_411.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_412.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_413.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_414.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_415.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_417.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_420.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_421.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_428.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_430.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_440.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_448.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_852.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_904.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,context_933.jpg,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,img_00004.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,img_00007.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_000_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_000_2.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_000_3.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_001_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_001_2.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_002_3.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_003_3.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_004_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_008_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_012_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_023_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,danger,situation_024_1.png,,danger,reconstructed_approx,folder_name_based_reconstruction
+manual,despair,ChatGPT Image 2026년 4월 30일 오후 01_19_04.png,sadness,,reconstructed_approx,folder_name_based_reconstruction
+manual,despair,ChatGPT Image 2026년 5월 6일 오후 03_06_40.png,sadness,,reconstructed_approx,folder_name_based_reconstruction
+manual,despair,ChatGPT Image 2026년 5월 6일 오후 03_06_57.png,sadness,,reconstructed_approx,folder_name_based_reconstruction
+manual,despair,ChatGPT Image 2026년 5월 6일 오후 03_10_03.png,sadness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,ChatGPT Image 2026년 4월 30일 오전 11_49_05.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,ChatGPT Image 2026년 5월 6일 오후 01_16_42.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_003.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_008.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_010.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_056.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_058.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_060.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_063.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_066.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,context_137.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,elation,situation_019_1.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,embarrassment,ChatGPT Image 2026년 5월 6일 오후 03_05_09.png,confusion,,reconstructed_approx,folder_name_based_reconstruction
+manual,embarrassment,ChatGPT Image 2026년 5월 6일 오후 03_06_02.png,confusion,,reconstructed_approx,folder_name_based_reconstruction
+manual,embarrassment,ChatGPT Image 2026년 5월 6일 오후 03_19_29.png,confusion,,reconstructed_approx,folder_name_based_reconstruction
+manual,emptiness,ChatGPT Image 2026년 5월 6일 오후 02_10_34.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,emptiness,ChatGPT Image 2026년 5월 6일 오후 02_28_47.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,emptiness,ChatGPT Image 2026년 5월 6일 오후 02_41_09.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,emptiness,ChatGPT Image 2026년 5월 6일 오후 02_45_29.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,euphoria,ChatGPT Image 2026년 4월 30일 오전 11_43_30.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,euphoria,ChatGPT Image 2026년 4월 30일 오전 11_51_53.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,euphoria,ChatGPT Image 2026년 5월 6일 오후 02_05_32.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,020_relief_hidden_exhaustion_visible.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,031_regret_hidden_blank_visible.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,035_guilt_hidden_neutral_visible.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,041_pride_hidden_modesty_visible.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,060_resentment_hidden_obedience_visible.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,066_anger_hidden_calm_visible.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,exhausted,situation_015_1.png,disconnection,,reconstructed_approx,folder_name_based_reconstruction
+manual,forgiveness,ChatGPT Image 2026년 5월 6일 오전 11_31_17.png,calm,,reconstructed_approx,folder_name_based_reconstruction
+manual,hope,ChatGPT Image 2026년 5월 6일 오후 02_57_40.png,calm,,reconstructed_approx,folder_name_based_reconstruction
+manual,jealousy,ChatGPT Image 2026년 5월 6일 오후 02_14_24.png,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,ChatGPT Image 2026년 4월 30일 오후 12_17_43.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,ChatGPT Image 2026년 5월 6일 오후 03_16_21.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_005.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_026.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_044.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_158.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_190.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_454.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,joy,context_461.jpg,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,manic,092_jealousy_hidden_congratulations_visible.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,manic,ChatGPT Image 2026년 4월 30일 오후 04_47_51.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,manic,situation_021_1.png,happiness,,reconstructed_approx,folder_name_based_reconstruction
+manual,missing,ChatGPT Image 2026년 5월 6일 오후 02_16_37.png,yearning,loss_absence,reconstructed_approx,folder_name_based_reconstruction
+manual,missing,ChatGPT Image 2026년 5월 6일 오후 02_45_50.png,yearning,loss_absence,reconstructed_approx,folder_name_based_reconstruction
+manual,missing,ChatGPT Image 2026년 5월 6일 오후 02_47_53.png,yearning,loss_absence,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 4월 30일 오전 11_46_15.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 4월 30일 오전 11_50_33.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오전 10_11_23.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 01_39_51.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 02_13_08.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 02_32_11.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 02_38_02.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 02_48_41.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 02_49_30.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 03_03_57.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 03_04_16.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,ChatGPT Image 2026년 5월 6일 오후 03_17_48.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_602.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_603.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_604.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_609.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_610.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_612.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_613.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_614.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_619.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_626.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,context_628.jpg,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,nervous,situation_032_1.png,fear,,reconstructed_approx,folder_name_based_reconstruction
+manual,pressure,ChatGPT Image 2026년 5월 6일 오후 02_31_52.png,,pressure,reconstructed_approx,folder_name_based_reconstruction
+manual,protest,ChatGPT Image 2026년 5월 6일 오전 11_34_38.png,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,protest,context_526.jpg,anger,,reconstructed_approx,folder_name_based_reconstruction
+manual,relief,ChatGPT Image 2026년 5월 6일 오후 01_59_45.png,calm,,reconstructed_approx,folder_name_based_reconstruction
+manual,relief,ChatGPT Image 2026년 5월 6일 오후 02_22_36.png,calm,,reconstructed_approx,folder_name_based_reconstruction
+manual,relief,ChatGPT Image 2026년 5월 6일 오후 02_32_49.png,calm,,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,ChatGPT Image 2026년 4월 30일 오전 11_55_52.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,ChatGPT Image 2026년 4월 30일 오후 01_30_29.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,ChatGPT Image 2026년 4월 30일 오후 12_10_55.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,ChatGPT Image 2026년 4월 30일 오후 12_12_41.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_027.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_029.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_030.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_034.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_035.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_036.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_037.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_039.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_040.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_230.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_234.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_240.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_245.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_255.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_258.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_261.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_264.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_267.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_283.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_284.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_293.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_294.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_306.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_310.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_313.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_314.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_317.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_318.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_323.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_325.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_327.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_329.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_334.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_335.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_338.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_343.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_346.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_349.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_351.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_356.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_357.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_362.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_363.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_364.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_905.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,context_945.jpg,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,situation_005_1.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,situation_006_1.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,situation_007_1.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,situation_010_1.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,safety,situation_011_1.png,,safety,reconstructed_approx,folder_name_based_reconstruction
+manual,superiority,ChatGPT Image 2026년 5월 6일 오후 02_47_08.png,,pressure,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,ChatGPT Image 2026년 5월 6일 오전 09_57_49.png,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_006.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_009.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_027.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_050.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_068.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_080.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,teasing,context_096.jpg,,teasing,reconstructed_approx,folder_name_based_reconstruction
+manual,vanity,ChatGPT Image 2026년 5월 6일 오전 10_16_08.png,,vanity,reconstructed_approx,folder_name_based_reconstruction
+manual,warmth,ChatGPT Image 2026년 5월 6일 오후 01_35_01.png,calm,,reconstructed_approx,folder_name_based_reconstruction
