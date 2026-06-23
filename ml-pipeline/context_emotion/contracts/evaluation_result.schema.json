@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "context_emotion evaluation_result",
+  "description": "Output of evaluation/evaluate_candidate.py. Stored as evaluation_result.json inside both candidates/{version}/ and current/. compare_candidate.py reads exactly two of these (current + candidate) and never recomputes metrics itself.",
+  "type": "object",
+  "required": ["version", "evaluated_at", "eval_set", "overall", "per_class", "human_ambiguity", "attacker_proxy", "artifact_integrity"],
+  "properties": {
+    "version": { "type": "string" },
+    "evaluated_at": { "type": "string", "format": "date-time" },
+    "eval_set": {
+      "type": "object",
+      "required": ["name", "size", "source_path"],
+      "properties": {
+        "name": { "type": "string", "example": "context_emotion_train_dataset_v2:test" },
+        "size": { "type": "integer" },
+        "source_path": { "type": "string" }
+      }
+    },
+    "overall": {
+      "type": "object",
+      "description": "Legitimate-user accuracy on the held-out eval set. Not the attacker-resistance signal - that's attacker_proxy below.",
+      "required": ["accuracy", "macro_f1", "weighted_f1"],
+      "properties": {
+        "accuracy": { "type": ["number", "null"] },
+        "macro_f1": { "type": ["number", "null"] },
+        "weighted_f1": { "type": ["number", "null"] }
+      }
+    },
+    "per_class": {
+      "type": "object",
+      "description": "Keyed by emotion class name (must match common/constants.py EMOTION_CLASSES). Each value: {precision, recall, f1, support}.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["precision", "recall", "f1", "support"],
+        "properties": {
+          "precision": { "type": ["number", "null"] },
+          "recall": { "type": ["number", "null"] },
+          "f1": { "type": ["number", "null"] },
+          "support": { "type": "integer" }
+        }
+      }
+    },
+    "human_ambiguity": {
+      "type": "object",
+      "description": "Sourced from ops_metrics, not from the static training csv - see MLOPS_OPERATION_DESIGN.md '운영 데이터 vs 학습 데이터'. status='not_configured' until the ambiguous-answer-option UX (see retrospective discussion) ships and accumulates exposures.",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["available", "not_configured"] },
+        "ambiguous_rate": { "type": ["number", "null"] },
+        "exposures": { "type": ["integer", "null"] }
+      }
+    },
+    "attacker_proxy": {
+      "type": "object",
+      "description": "status='not_configured' until an attacker proxy model + adversarial eval pool are chosen - see attacker_proxy_eval.py TODOs.",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["available", "not_configured"] },
+        "attacker_solve_rate": { "type": ["number", "null"] },
+        "error_type_breakdown": { "type": ["object", "null"] },
+        "proxy_model_version": { "type": ["string", "null"] }
+      }
+    },
+    "artifact_integrity": {
+      "type": "object",
+      "required": ["onnx_loadable", "input_output_match", "label_schema_match"],
+      "properties": {
+        "onnx_loadable": { "type": "boolean" },
+        "input_output_match": { "type": "boolean" },
+        "label_schema_match": { "type": "boolean" }
+      }
+    }
+  }
+}

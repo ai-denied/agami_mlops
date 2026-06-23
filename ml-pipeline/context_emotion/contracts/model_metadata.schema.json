@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "context_emotion model_metadata",
+  "description": "metadata.json that the modeling team must ship inside a candidate package. Read by package_emotion_model.py / validate_model_artifacts.py / promote_model.py. Validated by minimal hand-rolled checks in deployment/model_store.py (no jsonschema dependency at runtime - this file is the human-readable contract, not an enforced schema validator).",
+  "type": "object",
+  "required": [
+    "model_name",
+    "version",
+    "framework",
+    "label_schema_version",
+    "input_spec",
+    "output_spec",
+    "trained_at",
+    "training_dataset_version",
+    "checkpoint_source"
+  ],
+  "properties": {
+    "model_name": { "type": "string", "example": "EmotionClassifier" },
+    "version": { "type": "string", "description": "Must match the candidates/{version}/ directory name.", "example": "v1_20260701" },
+    "framework": { "type": "string", "example": "pytorch" },
+    "label_schema_version": { "type": "string", "description": "Must match label_schema.json's version field shipped alongside this metadata.json." },
+    "input_spec": {
+      "type": "object",
+      "required": ["name", "shape", "dtype"],
+      "properties": {
+        "name": { "type": "string", "example": "image" },
+        "shape": { "type": "array", "example": ["batch", 3, 224, 224] },
+        "dtype": { "type": "string", "example": "float32" }
+      }
+    },
+    "output_spec": {
+      "type": "object",
+      "required": ["name", "shape", "dtype"],
+      "properties": {
+        "name": { "type": "string", "example": "logits" },
+        "shape": { "type": "array", "example": ["batch", 14] },
+        "dtype": { "type": "string", "example": "float32" }
+      }
+    },
+    "trained_at": { "type": "string", "format": "date", "example": "2026-07-01" },
+    "training_dataset_version": { "type": "string", "example": "context_emotion_train_dataset_v2" },
+    "checkpoint_source": { "type": "string", "description": "Path or URI to the .pt checkpoint this ONNX was exported from - for traceability only, not read by any script.", "example": "runs/emotion_classifier_v1/best.pt" },
+    "notes": { "type": "string" }
+  }
+}

@@ -1,0 +1,14 @@
+# context_emotion MLOps 스캐폴딩(evaluate/package/compare/promote/rollback/
+# smoke_test) 실행에 필요한 의존성. requirements-training.txt(flashlight 전용)
+# 와는 별도 파일 - Dockerfile.training이 아직 context_emotion/을 COPY하지
+# 않으므로 (MLOPS_OPERATION_DESIGN.md 8장 TODO) 어느 이미지에도 아직
+# 연결되어 있지 않다.
+
+pyyaml>=6.0
+numpy>=1.24.0
+pillow>=10.0.0
+
+# evaluate_candidate.py / smoke_test_model.py / promote_model.py의 ONNX
+# 추론 검증에 필요. requirements-training.txt에도 이미 있지만 그쪽은
+# flashlight 전용 이미지라 별도로 명시.
+onnxruntime>=1.15.0

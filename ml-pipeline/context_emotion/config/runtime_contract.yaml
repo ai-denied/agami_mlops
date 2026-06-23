@@ -1,0 +1,45 @@
+# context_emotion runtime contract
+#
+# 경로/파일명 등 여러 스크립트가 공유하는 상수를 한 곳에 모은다.
+# deployment/model_store.py가 이 파일을 로드해서 다른 모든 스크립트에
+# 제공한다 - 경로를 바꿔야 하면 여기 한 곳만 고치면 된다.
+
+version: 1
+
+model_store:
+  root: model-store/context_emotion          # ml-pipeline/ 기준 상대경로
+  candidates_dirname: candidates
+  current_dirname: current
+  archive_dirname: archive
+
+candidate_required_files:
+  - model.onnx
+  - metadata.json
+  - label_schema.json
+  - preprocessing_config.json
+  - evaluation_result.json
+  - manifest.json
+
+onnx_contract:
+  input_name: image
+  input_shape: [batch, 3, 224, 224]      # TODO: 모델팀이 다른 입력 크기를 쓰면 갱신
+  output_name: logits
+  opset_min: 13
+
+preprocessing_config_required_keys:
+  - image_size
+  - normalize_mean
+  - normalize_std
+  - crop_to_bbox_for_emotic
+
+training_dataset:
+  # 학습에 쓰는 고정 데이터셋 - MLOPS_OPERATION_DESIGN.md "학습 데이터 vs
+  # 운영 평가 데이터" 참고. promote/compare 단계는 이 경로를 읽지 않는다.
+  train_csv: /workspace/data/context_emotion/processed/context_emotion_train_dataset_v2.csv
+  image_root: /workspace/data/context_emotion
+
+ops_metrics:
+  # 운영 중 쌓이는 시계열 - 학습 데이터와 분리된 별도 파일.
+  # repo에는 코드(ops_metrics/recorder.py)만 두고 실제 jsonl은 데이터
+  # 디렉터리에 쌓는다 (다른 data/* 산출물과 동일한 관례).
+  events_path: /workspace/data/context_emotion/ops_metrics/events.jsonl

@@ -1,0 +1,64 @@
+# context_emotion promotion policy
+#
+# 이 파일의 숫자 threshold는 전부 TODO placeholder(null)다. 실제 모델이
+# 한 번도 나온 적이 없는 상태에서 숫자를 미리 정하면 근거 없는 임의값이
+# 되므로, evaluation/promotion_gate.py는 threshold가 null인 게이트를
+# 'not_configured'로 처리하고 그 게이트만으로는 절대 자동 promote하지
+# 않는다 (MLOPS_OPERATION_DESIGN.md "아직 결정 안 된 것" 참고).
+#
+# 모델팀 첫 candidate가 나오고 evaluation_result.json이 실제 숫자로
+# 채워지면, 그 결과를 기준으로 여기 threshold를 채워 넣을 것.
+
+version: 1
+
+# ── 게이트 1: 전체 품질 (legitimate-user accuracy) ──────────────────────
+overall_quality_gate:
+  required: true
+  min_macro_f1: null              # TODO: 모델팀 첫 candidate 결과 보고 확정
+  min_accuracy: null              # TODO
+  max_macro_f1_drop_vs_current: null   # TODO: candidate가 current보다 얼마나 나빠지면 차단할지
+
+# ── 게이트 2: 클래스별 회귀 (저빈도/운영상 중요 클래스) ───────────────────
+class_regression_gate:
+  required: true
+  # context_emotion_label_distribution_v2.md의 low_resource 3종
+  # (sadness 253건, aversion 268건, embarrassment 76건) + confusion(329건,
+  # 다음으로 적음) 임시 지정. 실제 "운영상 중요" 클래스 목록은 운영팀
+  # 확인 필요.
+  critical_classes:
+    - embarrassment   # TODO: 운영팀 확정 전까지의 임시 목록
+    - aversion
+    - sadness
+    - confusion
+  max_f1_drop_absolute: null       # TODO: 예) 0.05 같은 값. 아직 미정
+  max_f1_drop_relative_pct: null   # TODO: 절대값 대신 상대 비율로 갈 수도 있음 - 둘 중 하나만 쓸지 결정 필요
+
+# ── 게이트 3: 사람 애매함 비율 (운영 메타데이터 기반) ─────────────────────
+human_ambiguity_gate:
+  required: false   # TODO: "애매함" 선택지 UX가 아직 없어서 운영 데이터가 없음 - 나오면 true로 전환
+  min_exposures_required: null     # TODO: 신뢰 가능한 표본수 (예: 노출 50회 이상)
+  max_ambiguous_rate: null         # TODO
+  max_ambiguous_rate_increase: null  # TODO: current 대비 candidate 적용 후 상승 허용폭
+
+# ── 게이트 4: 공격 프록시 방어력 ────────────────────────────────────────
+attacker_proxy_gate:
+  required: false   # TODO: 공격 프록시 모델/평가셋이 아직 미확정 - 확정되면 true로 전환
+  proxy_model_version: null        # TODO: 어떤 어태커 모델을 기준으로 평가할지
+  eval_pool_path: null             # TODO: 별도 운영 평가 풀 경로
+  max_attacker_solve_rate: null    # TODO
+  max_attacker_solve_rate_increase: null  # TODO: current 대비 candidate 허용 상승폭 (이게 핵심 게이트)
+
+# ── 게이트 5: 아티팩트 정합성 (코드로 항상 강제, threshold 없음) ──────────
+artifact_integrity_gate:
+  required: true   # onnx 로딩, input/output spec, label_schema 일치는 항상 강제
+
+# ── 재학습 트리거: 정기 Cron 아님, 신호 기반 ─────────────────────────────
+# run_model_update_pipeline.py가 자동으로 재학습을 트리거하지는 않는다 -
+# 이 섹션은 ops_metrics를 모니터링하는 사람/알림이 "지금 재학습 검토"
+# 신호로 참고하는 기준이다.
+retrain_trigger:
+  signal_based: true   # 캘린더 기반 cron 재학습 금지 원칙 (MLOPS_OPERATION_DESIGN.md)
+  attacker_solve_rate_increase_threshold: null   # TODO
+  human_ambiguity_rate_increase_threshold: null  # TODO
+  class_bias_increase_threshold: null            # TODO: 특정 클래스 노출/정답 편향 증가 기준
+  excluded_question_rate_threshold: null         # TODO: 운영 풀에서 제외되는 문항 비율이 너무 빨리 늘면 풀 고갈 신호
