@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
 from collections import deque
 from typing import Any
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 # v3(상대좌표 + 시간정규화) 모델이 학습한 피처 순서/네이밍.
@@ -47,10 +50,35 @@ FACE_RIGHT_IDX       = 454
 EYE_LEFT_OUTER_IDX   = 33
 EYE_RIGHT_OUTER_IDX  = 263
 
-# 실시간 캡처는 항상 연속 프레임(frame_interval=1, R_live_clip/ATK_external_clip과
-# 동일한 temporal density)이므로 시간정규화(_tn = raw / frame_interval)는 분모가
-# 1이라 raw와 동일하다. 학습 코드의 일반 공식을 그대로 따르되 fi=1로 고정한다.
-FRAME_INTERVAL = 1
+# ─────────────────────────────────────────────────────────────────────────────
+# 2026-06-24 수정: "실시간 캡처는 항상 R_live_clip과 같은 30fps(frame_interval=1)"
+# 라는 기존 가정이 캡챠위젯팀 실측(프레임 간격 67~119ms, 평균 ~83ms - setInterval
+# 지터 + MediaPipe 추론 부하)으로 반증됨. frame_interval=1로 고정하면 velocity_tn이
+# 학습분포보다 평균 ~2.5배 과대해지고, 클립 내에서도 프레임마다 스케일이 들쑥날쑥해진다
+# (R_live_clip vs S_dataset_sequence 시간정규화 버그와 같은 종류의 문제가 더 작은
+# 규모로 재현됨 - RETROSPECTIVE 참고).
+#
+# 학습 코드(preprocessing/extract_features_time_norm.py)의 frame_interval은 실측
+# ms가 아니라 "파일명 인덱스 간격"이며, R_live_clip은 항상 frame_interval=1로
+# 추정됐고 이는 DEFAULT_FPS=30(33.33ms/frame) 네이티브 캡처를 가정한 것이다.
+# 즉 학습이 쓴 "1 frame_interval 단위" = 33.33ms. 실시간 timestamp_ms가 있으면
+# 이 기준 단위에 맞춰 실측 Δt를 보정해야 학습분포와 스케일이 맞는다:
+#
+#   base_interval_ms = 1000 / DEFAULT_FPS        (= 33.33ms)
+#   fi_eff           = Δt_ms / base_interval_ms
+#   feature_tn       = raw_diff / fi_eff
+#                    = raw_diff * base_interval_ms / Δt_ms
+#
+# timestamp_ms가 없는 호출자는 여전히 FRAME_INTERVAL=1 fallback을 쓴다 - 아래
+# _build_seq_array()의 분기와 로그 경고 참고.
+# ─────────────────────────────────────────────────────────────────────────────
+DEFAULT_FPS = 30
+BASE_INTERVAL_MS = 1000.0 / DEFAULT_FPS  # 학습이 가정한 "frame_interval=1 단위" (≈33.33ms)
+FRAME_INTERVAL = 1  # timestamp_ms 미제공 시 fallback (기존 동작 유지)
+
+# Δt_ms 방어용 clamp. 둘 다 base_interval_ms 기준 배수로 잡아 30fps 가정과 일관되게 한다.
+MIN_DT_MS = 1.0                     # 0/음수(timestamp 역전, 중복 timestamp) 방어
+MAX_DT_MS = 10.0 * BASE_INTERVAL_MS  # ≈333ms — 이보다 크면 프레임 드롭/일시정지로 간주, median Δt로 대체
 
 MIN_VALID_FRAMES = 3
 
@@ -146,14 +174,61 @@ def _interpolate(frames: list[dict[str, float] | None]) -> list[dict[str, float]
     return result
 
 
-def _build_seq_array(clip: list[dict[str, float]]) -> np.ndarray:
+def _compute_fi_eff(timestamps_ms: list[float] | None, n: int) -> list[float] | None:
+    """clip의 각 프레임 i(i>=1)에 대해 i-1→i 구간의 fi_eff(=Δt_ms/BASE_INTERVAL_MS)를
+    계산한다. index 0은 velocity 계산에 쓰이지 않으므로 placeholder(None)로 둔다.
+
+    timestamps_ms가 없거나 clip 길이와 안 맞으면 None을 반환해 호출부가
+    FRAME_INTERVAL=1 fallback을 쓰게 한다.
+
+    방어 로직:
+    - Δt_ms <= 0 (timestamp 역전/중복) 또는 Δt_ms > MAX_DT_MS(프레임 드롭/일시정지로
+      간주) → 그 구간만 median Δt로 대체. 한 구간의 이상치가 velocity를 한쪽으로
+      튀게 만드는 것을 막는다.
+    - median 계산 자체에 쓸 유효 Δt가 하나도 없으면(전부 비정상) BASE_INTERVAL_MS로
+      대체 - 학습이 가정한 30fps 기준으로 안전하게 떨어진다.
+    - 최종 Δt는 MIN_DT_MS로 하한 clamp (분모가 0에 가까워 fi_eff가 폭발하는 것 방지).
+    """
+    if not timestamps_ms or len(timestamps_ms) != n:
+        return None
+
+    raw_dts = [float(timestamps_ms[i]) - float(timestamps_ms[i - 1]) for i in range(1, n)]
+    valid_dts = [dt for dt in raw_dts if 0 < dt <= MAX_DT_MS]
+    median_dt = float(np.median(valid_dts)) if valid_dts else BASE_INTERVAL_MS
+
+    fi_eff: list[float | None] = [None]
+    for dt in raw_dts:
+        if dt <= 0 or dt > MAX_DT_MS:
+            logger.warning(
+                "비정상 Δt 감지(%.1fms) - median(%.1fms)으로 대체합니다. "
+                "프레임 드롭/타임스탬프 역전 가능성을 확인하세요.",
+                dt, median_dt,
+            )
+            dt = median_dt
+        dt = max(dt, MIN_DT_MS)
+        fi_eff.append(dt / BASE_INTERVAL_MS)
+    return fi_eff
+
+
+def _build_seq_array(
+    clip: list[dict[str, float]],
+    fi_eff: list[float] | None = None,
+) -> np.ndarray:
     """학습 코드의 build_seq_array()와 동일한 클립 단위 상대좌표 + 시간정규화 velocity.
 
-    클립 평균 기준 상대좌표(nose_x_rel 등)와 frame_interval(=1, 실시간 연속 프레임)
-    로 나눈 velocity(_tn)를 계산한다.
+    fi_eff가 주어지면(= 실측 timestamp_ms 기반) 프레임마다 다른 fi_eff[i]로
+    나눠 실제 캡처 간격을 반영한다. fi_eff가 없으면 기존처럼 FRAME_INTERVAL(=1)
+    고정값을 쓴다 - 이 경우 캡처 간격이 학습이 가정한 33.33ms(30fps)와 다르면
+    velocity_tn 스케일이 학습분포와 어긋날 수 있다는 점에 주의해야 한다.
     """
     n = len(clip)
-    fi = FRAME_INTERVAL
+    using_real_dt = fi_eff is not None
+    if not using_real_dt:
+        logger.warning(
+            "timestamp_ms 미제공 - frame_interval=1 fallback 사용. "
+            "실제 캡처 간격이 33.33ms(30fps)와 다르면 velocity_tn이 학습분포와 "
+            "어긋날 수 있습니다 (정확도 리스크)."
+        )
 
     mean_nose_x = float(np.mean([f["nose_x"] for f in clip]))
     mean_nose_y = float(np.mean([f["nose_y"] for f in clip]))
@@ -177,6 +252,8 @@ def _build_seq_array(clip: list[dict[str, float]]) -> np.ndarray:
         if i == 0:
             vel_feats = np.zeros(10, dtype=np.float32)
         else:
+            fi = fi_eff[i] if using_real_dt else FRAME_INTERVAL
+
             prev = clip[i - 1]
             nose_dx   = nose_x_rel - (prev["nose_x"] - mean_nose_x)
             nose_dy   = nose_y_rel - (prev["nose_y"] - mean_nose_y)
@@ -213,6 +290,12 @@ class FaceFeatureExtractor:
 
     preprocessing/extract_features_time_norm.py와 동일한 공식을 실시간 프레임
     버퍼에 적용한다. 출력 shape: (target_frames, 20), 피처 순서는 SELECTED_FEATURES.
+
+    extract_from_frames()에 timestamps_ms(프레임별 절대 timestamp, ms)를 같이
+    넘기면 실제 캡처 간격을 반영해 velocity_tn을 계산한다(권장) - 캡처 간격이
+    불균일하거나 30fps와 다른 환경(예: 실측 67~119ms)에서는 반드시 넘겨야
+    학습분포와 스케일이 맞는다. 생략하면 frame_interval=1 fallback을 쓰며
+    로그 경고가 출력된다.
     """
 
     def __init__(self, target_frames: int = 16, max_num_faces: int = 1):
@@ -233,8 +316,25 @@ class FaceFeatureExtractor:
     def close(self) -> None:
         self._face_mesh.close()
 
-    def extract_from_frames(self, frames: list[np.ndarray]) -> tuple[np.ndarray, int, dict]:
-        selected_frames = self._sample_frames(frames)
+    def extract_from_frames(
+        self,
+        frames: list[np.ndarray],
+        timestamps_ms: list[float] | None = None,
+    ) -> tuple[np.ndarray, int, dict]:
+        """frames: BGR 이미지 리스트. timestamps_ms: frames와 같은 길이의 프레임별
+        절대 타임스탬프(ms, 예: performance.now()/Date.now()). 제공하면 프레임 간
+        실제 Δt로 velocity_tn을 보정하고(권장), 없으면 frame_interval=1 fallback을
+        쓴다(정확도 리스크 - 로그 경고 참고)."""
+        if timestamps_ms is not None and len(timestamps_ms) != len(frames):
+            raise ValueError(
+                f"timestamps_ms 길이({len(timestamps_ms)})가 frames 길이({len(frames)})와 다릅니다."
+            )
+
+        indices = self._sample_indices(len(frames))
+        selected_frames = [frames[i] for i in indices]
+        selected_timestamps = (
+            [float(timestamps_ms[i]) for i in indices] if timestamps_ms is not None else None
+        )
         n = len(selected_frames)
 
         raw_frames: list[dict[str, float] | None] = []
@@ -254,7 +354,8 @@ class FaceFeatureExtractor:
             # 보간 후에도 양 끝에 None이 남을 수 있다(얼굴이 한 번도 검출되지 않은
             # 경우는 위에서 걸러지지만, 만약을 위해 0-feature로 방어).
             clip = [f if f is not None else _zero_raw_feature() for f in filled]
-            seq = _build_seq_array(clip)
+            fi_eff = _compute_fi_eff(selected_timestamps, n)
+            seq = _build_seq_array(clip, fi_eff=fi_eff)
             use_n = min(n, self.target_frames)
             x_seq[:use_n] = seq[:use_n]
 
@@ -268,20 +369,22 @@ class FaceFeatureExtractor:
             "face_detected": face_detected,
             "face_detect_rate": face_detected_frames / max(1, n),
             "selected_features": SELECTED_FEATURES,
+            "used_real_timestamps": selected_timestamps is not None,
         }
         return x_seq, seq_length, info
 
-    def _sample_frames(self, frames: list[np.ndarray]) -> list[np.ndarray]:
-        if not frames:
+    def _sample_indices(self, count: int) -> list[int]:
+        """frames 원본 인덱스를 target_frames 길이로 다운/업샘플링한다. frames와
+        timestamps_ms에 동일하게 적용해야 둘의 정렬이 깨지지 않는다."""
+        if count == 0:
             return []
-        if len(frames) >= self.target_frames:
-            indices = np.linspace(0, len(frames) - 1, self.target_frames).astype(int)
-            return [frames[int(i)] for i in indices]
+        if count >= self.target_frames:
+            return np.linspace(0, count - 1, self.target_frames).astype(int).tolist()
 
-        padded = list(frames)
-        while len(padded) < self.target_frames:
-            padded.append(frames[-1])
-        return padded
+        indices = list(range(count))
+        while len(indices) < self.target_frames:
+            indices.append(count - 1)
+        return indices
 
     def _extract_one_raw(self, frame_bgr: np.ndarray) -> dict[str, float] | None:
         if frame_bgr is None or frame_bgr.size == 0:
@@ -322,14 +425,29 @@ def _zero_raw_feature() -> dict[str, float]:
 
 
 class FrameBuffer:
+    """frame_bgr와 timestamp_ms(선택)를 함께 보관한다. timestamp_ms를 매번 넘기면
+    as_timestamps_list()로 꺼내 FaceFeatureExtractor.extract_from_frames()에
+    그대로 전달할 수 있다 - 일부만 timestamp_ms를 넘기고 일부는 생략하면 정렬이
+    깨지므로 섞어 쓰지 않는다(둘 다 None이거나 둘 다 값이 있어야 함)."""
+
     def __init__(self, maxlen: int = 16):
         self.frames: deque[np.ndarray] = deque(maxlen=maxlen)
+        self.timestamps: deque[float | None] = deque(maxlen=maxlen)
 
-    def append(self, frame: np.ndarray) -> None:
+    def append(self, frame: np.ndarray, timestamp_ms: float | None = None) -> None:
         self.frames.append(frame.copy())
+        self.timestamps.append(float(timestamp_ms) if timestamp_ms is not None else None)
 
     def ready(self) -> bool:
         return len(self.frames) == self.frames.maxlen
 
     def as_list(self) -> list[np.ndarray]:
         return list(self.frames)
+
+    def as_timestamps_list(self) -> list[float] | None:
+        """timestamp가 하나라도 빠져 있으면 None을 반환한다 - extract_from_frames()가
+        부분적인 timestamp 배열로 잘못 정렬된 Δt를 계산하지 않도록 방어."""
+        ts = list(self.timestamps)
+        if not ts or any(t is None for t in ts):
+            return None
+        return ts
