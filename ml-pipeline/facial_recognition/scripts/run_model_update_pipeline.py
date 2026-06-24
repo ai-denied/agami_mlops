@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -160,7 +161,11 @@ def run_export(checkpoint_path: str, version: str) -> tuple[bool, str | None]:
 def run_promote(version: str, dry_run: bool) -> bool:
     from facial_recognition.scripts.promote_model import promote
     try:
-        promote(version=version, dry=dry_run, skip_validate=True)
+        # skip_validate=False — ONNX runtime contract 검증(텐서 이름/shape/dtype)을
+        # 항상 거친다. 이전에는 True로 고정되어 있어, 전체 파이프라인으로 돌리면
+        # 어떤 검증도 없이 그대로 승격됐다 (promote_model.py를 단독 CLI로 호출할
+        # 때만 검증이 동작하는 상태였음).
+        promote(version=version, dry=dry_run, skip_validate=False)
         return True
     except Exception as e:
         print(f"  [ERROR] {e}")
@@ -168,10 +173,74 @@ def run_promote(version: str, dry_run: bool) -> bool:
         return False
 
 
+# ── STEP 4: 운영 pod 재시작 ───────────────────────────────────────────────────
+
+def run_restart_inference_api(namespace: str, deployment_name: str, rollout_timeout: str) -> bool:
+    """promote_model.py가 model-store/facial_recognition/current/를 바꿔도,
+    이미 떠 있는 API pod는 FastAPI lifespan에서 모델을 딱 한 번만 로드하므로
+    (api/loader.py) 재시작 전까지 옛 모델을 계속 서빙한다. kubectl rollout
+    status까지 기다려서, 새 pod가 전부 Ready가 되기 전에는 smoke test로
+    넘어가지 않는다."""
+    try:
+        print(f"  kubectl rollout restart deployment/{deployment_name} -n {namespace}")
+        result = subprocess.run(
+            ["kubectl", "rollout", "restart", f"deployment/{deployment_name}", "-n", namespace],
+            check=False,
+        )
+        if result.returncode != 0:
+            print(f"  [ERROR] rollout restart 실패 (exit={result.returncode})")
+            return False
+
+        print(f"  kubectl rollout status 대기 (timeout={rollout_timeout})")
+        result = subprocess.run(
+            [
+                "kubectl", "rollout", "status", f"deployment/{deployment_name}",
+                "-n", namespace, f"--timeout={rollout_timeout}",
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            print(f"  [ERROR] rollout status 실패/타임아웃 (exit={result.returncode})")
+            return False
+
+        print("  [OK] rollout 완료 - 새 pod 전부 Ready")
+        return True
+    except FileNotFoundError:
+        print("  [ERROR] kubectl을 찾을 수 없음 - PATH 또는 실행 환경 확인 필요")
+        return False
+    except Exception as e:
+        print(f"  [ERROR] {e}")
+        traceback.print_exc()
+        return False
+
+
+# ── STEP 5: 운영 스모크 테스트 ─────────────────────────────────────────────────
+
+def run_smoke_test_step(base_url: str, version: str, retries: int) -> bool:
+    """rollout이 끝났다는 것(Ready)과 "방금 승격한 버전이 정확히 떠서 정상
+    추론까지 되는 것"은 다른 이야기다 - /health의 model_version을 candidate
+    버전과 직접 대조하고, 실제 /predict 호출까지 해본다."""
+    from facial_recognition.scripts.smoke_test_model import run_smoke_test
+
+    for attempt in range(1, retries + 1):
+        print(f"  === 스모크 테스트 시도 {attempt}/{retries} ===")
+        if run_smoke_test(base_url, version, timeout=10.0):
+            return True
+        if attempt < retries:
+            print("  5초 후 재시도...")
+            time.sleep(5.0)
+
+    print(f"  [FAILED] {retries}회 재시도 후에도 스모크 테스트 실패")
+    return False
+
+
 # ── 파이프라인 오케스트레이터 ─────────────────────────────────────────────────
 
 def run_pipeline(args) -> bool:
-    total_steps = 2 if args.skip_train else 3
+    # dry_run이거나 --skip-restart면 restart/smoke-test 2단계를 건너뛴다
+    # (dry-run은 current가 안 바뀌므로 재시작할 이유가 없음).
+    do_post_promote_steps = (not args.dry_run) and (not args.skip_restart)
+    total_steps = (2 if args.skip_train else 3) + (2 if do_post_promote_steps else 0)
     dry_tag     = "DRY-RUN" if args.dry_run else ""
 
     _banner(
@@ -184,6 +253,8 @@ def run_pipeline(args) -> bool:
         "train":   None,
         "export":  None,
         "promote": None,
+        "restart": None,
+        "smoke_test": None,
     }
     checkpoint_path = getattr(args, "checkpoint", None)
     pipeline_start  = time.monotonic()
@@ -241,6 +312,41 @@ def run_pipeline(args) -> bool:
         _step_ok(step, total_steps, detail, elapsed)
     else:
         _step_fail(step, total_steps, "승격 실패")
+        _print_final(results, time.monotonic() - pipeline_start)
+        return False
+
+    if not do_post_promote_steps:
+        if args.skip_restart:
+            print("\n  (--skip-restart 지정 — 운영 pod 재시작/스모크 테스트 건너뜀)")
+        _print_final(results, time.monotonic() - pipeline_start)
+        return all(v is True for v in results.values() if v is not None)
+
+    # ── STEP 4: 운영 pod 재시작 ───────────────────────────────────────────────
+    step += 1
+    _step_header(step, total_steps, "운영 pod 재시작", "kubectl rollout restart")
+    t0 = time.monotonic()
+    ok = run_restart_inference_api(args.namespace, args.deployment_name, args.rollout_timeout)
+    elapsed = time.monotonic() - t0
+    results["restart"] = ok
+    if ok:
+        _step_ok(step, total_steps, f"{args.deployment_name} -n {args.namespace}", elapsed)
+    else:
+        _step_fail(step, total_steps, "재시작/rollout 실패")
+        _step_skip(step + 1, total_steps, "restart 실패로 인한 중단")
+        _print_final(results, time.monotonic() - pipeline_start)
+        return False
+
+    # ── STEP 5: 운영 스모크 테스트 ────────────────────────────────────────────
+    step += 1
+    _step_header(step, total_steps, "운영 스모크 테스트", "smoke_test_model")
+    t0 = time.monotonic()
+    ok = run_smoke_test_step(args.base_url, args.version, args.smoke_test_retries)
+    elapsed = time.monotonic() - t0
+    results["smoke_test"] = ok
+    if ok:
+        _step_ok(step, total_steps, f"version={args.version} 서빙 확인", elapsed)
+    else:
+        _step_fail(step, total_steps, "스모크 테스트 실패")
 
     _print_final(results, time.monotonic() - pipeline_start)
     return all(v is True for v in results.values() if v is not None)
@@ -256,9 +362,11 @@ def _print_final(results: dict, total_elapsed: float) -> None:
 
     icons = {True: "✓", False: "✗", None: "─"}
     names = {
-        "train":   "학습     (train_gru)",
-        "export":  "변환     (export_face_liveness_onnx)",
-        "promote": "승격     (promote_model)",
+        "train":      "학습       (train_gru)",
+        "export":     "변환       (export_face_liveness_onnx)",
+        "promote":    "승격       (promote_model)",
+        "restart":    "운영 재시작 (kubectl rollout restart)",
+        "smoke_test": "스모크 테스트 (smoke_test_model)",
     }
     for key, name in names.items():
         val     = results.get(key)
@@ -317,6 +425,22 @@ def _parse_args():
     # 공통
     parser.add_argument("--dry-run", action="store_true",
                         help="train/export 실행, promote는 dry-run")
+
+    # 승격 후 운영 반영 (restart + smoke test)
+    deploy_g = parser.add_argument_group("승격 후 운영 반영 옵션")
+    deploy_g.add_argument("--skip-restart", action="store_true",
+                          help="승격 후 kubectl rollout restart/smoke test를 건너뜀 "
+                               "(kubectl 접근이 없는 환경에서 학습/승격만 할 때 사용)")
+    deploy_g.add_argument("--namespace", default="agami",
+                          help="face-liveness-api Deployment가 떠 있는 namespace "
+                               "(2026-06-24 클러스터 확인: agami가 운영 namespace)")
+    deploy_g.add_argument("--deployment-name", default="face-liveness-api")
+    deploy_g.add_argument("--rollout-timeout", default="180s",
+                          help="kubectl rollout status가 새 pod Ready를 기다리는 최대 시간")
+    deploy_g.add_argument("--base-url",
+                          default="http://face-liveness-api-svc.agami.svc.cluster.local",
+                          help="smoke test가 호출할 in-cluster 서비스 주소")
+    deploy_g.add_argument("--smoke-test-retries", type=int, default=6)
 
     return parser.parse_args()
 

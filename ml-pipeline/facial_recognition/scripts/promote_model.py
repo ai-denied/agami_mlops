@@ -24,6 +24,8 @@ import shutil
 import sys
 from datetime import datetime
 
+from facial_recognition.evaluation.onnx_contract_check import validate_candidate_onnx_contract
+
 _SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 _ML_PIPELINE_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", ".."))
 _STORE            = os.path.join(_ML_PIPELINE_ROOT, "model-store", "facial_recognition")
@@ -49,13 +51,29 @@ def _validate_candidate(candidate_dir: str) -> None:
         )
 
 
-def _validate_onnx(onnx_path: str) -> None:
+def _validate_onnx(onnx_path: str, metadata_path: str) -> None:
+    """ONNX runtime contract 대조 + 세션 로딩/더미 추론으로 후보 모델을 검증한다.
+
+    contract 위반(텐서 이름/shape/dtype 변경)은 더미 추론이 우연히 성공하더라도
+    잘못된 모델이 승격되는 사고를 막는 핵심 게이트다 - 먼저 검사해서 실패하면
+    예외를 던지고, 더미 추론까지 가지 않는다."""
     try:
         import numpy as np
         import onnxruntime as ort
     except ImportError as e:
         print(f"[SKIP] 검증 의존성 미설치 — {e}")
         return
+
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    contract_problems = validate_candidate_onnx_contract(onnx_path, metadata)
+    if contract_problems:
+        raise ValueError(
+            "ONNX runtime contract 위반 — 승격 불가:\n" +
+            "\n".join(f"  - {p}" for p in contract_problems)
+        )
+    print("[OK] ONNX runtime contract 검증 통과 (x_seq -> spoof_score)")
 
     sess   = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
     dummy  = np.zeros((1, 16, 20), dtype=np.float32)
@@ -140,7 +158,10 @@ def promote(version: str, dry: bool, skip_validate: bool) -> None:
     if skip_validate:
         print("  [SKIP] --skip-validate 지정")
     else:
-        _validate_onnx(os.path.join(candidate_dir, "face_liveness.onnx"))
+        _validate_onnx(
+            os.path.join(candidate_dir, "face_liveness.onnx"),
+            os.path.join(candidate_dir, "metadata.json"),
+        )
 
     print("\n[3/5] current 백업")
     old_version = _read_current_version()

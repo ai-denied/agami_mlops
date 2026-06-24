@@ -1,0 +1,28 @@
+# facial_recognition ONNX runtime contract
+#
+# face_liveness.onnx가 반드시 지켜야 하는 입출력 텐서 계약.
+# inference/onnx_face_liveness_detector.py와 api/schemas.py(SEQ_LEN=16,
+# N_FEATURES=20)가 이 모양을 그대로 하드코딩해서 session.run()을 호출한다
+# (x_seq -> spoof_score) - 모델팀이 이 중 하나라도(이름/shape/dtype) 바꾸면
+# 서빙 코드가 그대로 깨진다.
+#
+# evaluation/onnx_contract_check.py가 승격 전에 이 파일과 실제 onnx 그래프를
+# onnxruntime으로 읽어 대조한다 (export 시 생성되는 metadata.json의
+# input_name/input_shape/output_name/output_shape 필드도 같이 대조).
+# 검증 실패 시 scripts/promote_model.py가 승격을 막는다.
+
+version: 1
+
+onnx_contract:
+  inputs:
+    - name: x_seq
+      # batch는 가변 차원(symbolic) - 검증에서 와일드카드로 취급한다.
+      # seq_len(16)과 feature 차원(20)은 api/schemas.py(SEQ_LEN, N_FEATURES)와
+      # 정확히 일치해야 하는 고정값이다.
+      shape: [batch, 16, 20]
+      dtype: float32
+  outputs:
+    - name: spoof_score
+      shape: [batch]
+      dtype: float32
+  opset_min: 13
