@@ -42,6 +42,8 @@ from flashlight.scripts.compare_candidate import (
     _build_rows,
     _overall_pass,
     print_comparison,
+    print_contract_check,
+    run_contract_check,
     _CANDIDATES_DIR as _CMP_CANDIDATES_DIR,
     _CURRENT_DIR    as _CMP_CURRENT_DIR,
 )
@@ -116,9 +118,15 @@ def run_package(version: str, onnx: str, normalizer: str, metadata: str) -> bool
 
 def run_compare(version: str) -> bool:
     """
-    compare_candidate 실행.
-    PASS 시 True, FAIL 또는 오류 시 False.
+    ONNX runtime contract 검증 + compare_candidate 실행.
+    contract가 FAIL이면 성능 지표를 보지도 않고 즉시 False - 텐서 이름/shape가
+    바뀐 모델은 성능이 아무리 좋아도 승격 후보가 될 수 없다.
     """
+    contract_passed, contract_problems = run_contract_check(version)
+    print_contract_check(version, contract_passed, contract_problems)
+    if not contract_passed:
+        return False
+
     current_meta_path   = os.path.join(_CMP_CURRENT_DIR,   "metadata.json")
     candidate_meta_path = os.path.join(_CMP_CANDIDATES_DIR, version, "metadata.json")
     try:
@@ -144,7 +152,9 @@ def run_promote(version: str, dry_run: bool) -> bool:
     성공 시 True, 실패 시 False.
     """
     try:
-        promote(version=version, dry=dry_run, skip_validate=True)
+        # skip_validate=False — run_compare()가 이미 contract+성능을 검증했지만,
+        # promote_model.py 자체의 ONNX 로딩 검증도 마지막 방어선으로 항상 실행한다.
+        promote(version=version, dry=dry_run, skip_validate=False)
         return True
     except Exception as e:
         print(f"  [ERROR] {e}")

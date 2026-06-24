@@ -1,7 +1,15 @@
 # =============================================================================
-# flashlight model-store 업데이트 파이프라인 — Argo Workflows 1차 구현
+# flashlight model-store 업데이트 파이프라인 — Argo Workflows 2차 구현
 #
-# 구조: 단일 step (run_model_update_pipeline.py 전체를 하나의 컨테이너로 실행)
+# 구조: update-model(package→compare→promote, 단일 컨테이너)
+#       → restart-inference-api(kubectl rollout restart + status 대기)
+#       → smoke-test-api(/health 버전 일치 + /predict 정상 동작 확인)
+#       → precompute-dashboard(dashboard_cache.json 재생성)
+#
+# compare 단계는 ONNX runtime contract 검증(flashlight/config/runtime_contract.yaml,
+# evaluation/onnx_contract_check.py)을 성능 비교보다 먼저 통과해야 한다 - 텐서
+# 이름/shape/dtype이 바뀐 모델은 성능이 좋아도 승격되지 않는다
+# (scripts/compare_candidate.py, scripts/promote_model.py 참고).
 #
 # 포함 리소스:
 #   1. WorkflowTemplate  — 재사용 가능한 파이프라인 정의
@@ -15,10 +23,17 @@
 #     -p version=v4_20260610 \
 #     -p dry_run=true
 #
+# 2026-06-24 클러스터 확인: agami namespace의 flashlight-inference-api가
+# 1/1 Available로 실제 서빙 중인 운영 Deployment (argo namespace 쪽은 0/2,
+# 가동 안 됨 - deprecated, manifests/flashlight-inference-api.yaml 참고).
+# inference_namespace 기본값 "agami"는 확정값이다.
+#
 # 미구현 항목:
 #   - 캡챠 엔진 서버 연동 (captcha-engine reload API 호출)
 #   - PVC 실제 이름 확정
 #   - 컨테이너 이미지 레지스트리 경로 확정
+#   - flashlight-workflow-sa가 inference_namespace의 Deployment를 patch할 수
+#     있어야 한다 (rbac-flashlight-workflow.yaml의 [4] RoleBinding 참고)
 # =============================================================================
 
 ---
@@ -65,6 +80,26 @@ spec:
       # "true" 이면 promote 단계를 dry-run으로만 실행 (current 미변경)
       value: "false"
 
+    - name: inference_namespace
+      # flashlight-inference-api Deployment가 떠 있는 namespace.
+      # 2026-06-24 클러스터 확인으로 agami가 운영 namespace임이 확정됨
+      # (argo namespace의 동명 Deployment는 0/2로 가동되지 않음 - deprecated).
+      value: "agami"
+
+    - name: inference_deployment_name
+      value: "flashlight-inference-api"
+
+    - name: inference_base_url
+      # smoke test가 호출할 in-cluster 서비스 주소
+      value: "http://flashlight-inference-api-svc.agami.svc.cluster.local"
+
+    - name: rollout_timeout
+      # kubectl rollout status가 새 pod Ready를 기다리는 최대 시간
+      value: "180s"
+
+    - name: smoke_test_retries
+      value: "6"
+
   entrypoint: pipeline-dag
 
   templates:
@@ -89,10 +124,41 @@ spec:
           - name: dry_run
             value: "{{workflow.parameters.dry_run}}"
 
-      # 모델 업데이트 완료 후 dashboard_cache.json 재생성
+      # update-model이 promote까지 성공한 뒤에만 실행된다 (Argo 기본 동작: 의존
+      # task가 실패하면 dependents는 자동으로 건너뜀). dry_run일 때는 current가
+      # 바뀌지 않으므로 운영 pod를 재시작할 필요가 없다.
+      - name: restart-inference-api
+        template: restart-inference-api
+        dependencies: [update-model]
+        when: "{{workflow.parameters.dry_run}} != true"
+        arguments:
+          parameters:
+          - name: namespace
+            value: "{{workflow.parameters.inference_namespace}}"
+          - name: deployment_name
+            value: "{{workflow.parameters.inference_deployment_name}}"
+          - name: rollout_timeout
+            value: "{{workflow.parameters.rollout_timeout}}"
+
+      # rollout status가 새 pod Ready를 확인한 뒤에만 실행 - restart-inference-api가
+      # 실패(타임아웃/롤백)하면 smoke test는 건너뛰고 워크플로우가 바로 실패로 끝난다.
+      - name: smoke-test-api
+        template: smoke-test-api
+        dependencies: [restart-inference-api]
+        arguments:
+          parameters:
+          - name: base_url
+            value: "{{workflow.parameters.inference_base_url}}"
+          - name: expected_version
+            value: "{{tasks.update-model.outputs.parameters.resolved-version}}"
+          - name: retries
+            value: "{{workflow.parameters.smoke_test_retries}}"
+
+      # 모델 업데이트 + 재시작 + 스모크 테스트까지 전부 끝난 뒤에만 캐시 재생성
+      # (스모크 테스트가 FAIL이면 옛/불안정한 상태의 모델로 캐시를 만들지 않도록)
       - name: precompute-dashboard
         template: precompute-dashboard
-        dependencies: [update-model]
+        dependencies: [smoke-test-api]
         when: "{{workflow.parameters.dry_run}} != true"
 
   # ---------------------------------------------------------------------------
@@ -106,6 +172,16 @@ spec:
       - name: normalizer_path
       - name: metadata_path
       - name: dry_run
+
+    # resolved-version: version 파라미터가 비어 있을 때 스크립트 내부에서
+    # 날짜 기반으로 자동 생성한 실제 버전명. smoke-test-api가 "방금 승격한
+    # 버전이 실제로 떠 있는지" 확인하려면 이 값이 필요하다 - 워크플로우
+    # 파라미터(version)만으로는 빈 문자열일 수 있어 부족하다.
+    outputs:
+      parameters:
+      - name: resolved-version
+        valueFrom:
+          path: /tmp/resolved_version.txt
 
     # script 템플릿: Python 코드로 CLI 인자를 조합한 뒤 파이프라인 호출
     # container 템플릿보다 조건부 인자(--dry-run) 처리가 용이함
@@ -130,6 +206,14 @@ spec:
         version = "{{inputs.parameters.version}}"
         if not version:
             version = f"v_{datetime.now().strftime('%Y%m%d')}"
+
+        # 이후 단계(restart-inference-api 다음의 smoke-test-api)가 "정확히 이
+        # 버전이 떴는지"를 확인하려면 resolved-version 출력 파라미터가 필요하다.
+        # promote가 실제로 끝나기 전에 미리 써두는 게 아니라, 어떤 버전을
+        # 시도했는지를 기록하는 것 - 이 task 자체가 실패하면 Argo가 출력
+        # 파라미터를 읽지 않고 dependents를 건너뛰므로 안전하다.
+        with open("/tmp/resolved_version.txt", "w") as f:
+            f.write(version)
 
         cmd = [
             "python", "-m", "flashlight.scripts.run_model_update_pipeline",
@@ -234,6 +318,97 @@ spec:
     retryStrategy:
       limit: "1"
       retryPolicy: OnError
+
+  # ---------------------------------------------------------------------------
+  # 운영 pod 재시작: promote_model.py가 model-store/flashlight/current/를
+  # 바꿔도, 이미 떠 있는 API pod는 FastAPI lifespan에서 모델을 딱 한 번만
+  # 로드하므로(api/loader.py) 재시작 전까지 옛 모델을 계속 서빙한다. 이
+  # step이 없으면 "승격했지만 운영에는 반영 안 됨" 상태가 무기한 지속될 수
+  # 있다.
+  #
+  # rollout status까지 기다려서, 새 pod가 전부 Ready가 되기 전에는 다음
+  # 단계(smoke-test-api)로 넘어가지 않는다. restart/rollout 자체가 실패하면
+  # (이미지 pull 실패, readinessProbe 실패 등) 이 step이 비0 종료코드로
+  # 끝나고 워크플로우가 실패로 표시된다.
+  # ---------------------------------------------------------------------------
+  - name: restart-inference-api
+    inputs:
+      parameters:
+      - name: namespace
+      - name: deployment_name
+      - name: rollout_timeout
+    container:
+      # kubectl만 있으면 되는 가벼운 이미지. 버전은 클러스터 kube-apiserver와
+      # 호환되는 태그로 고정해서 사용할 것.
+      image: bitnami/kubectl:1.28
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -euo pipefail
+          echo "[restart] kubectl rollout restart deployment/{{inputs.parameters.deployment_name}} -n {{inputs.parameters.namespace}}"
+          kubectl rollout restart deployment/{{inputs.parameters.deployment_name}} -n {{inputs.parameters.namespace}}
+
+          echo "[restart] kubectl rollout status 대기 (timeout={{inputs.parameters.rollout_timeout}})"
+          kubectl rollout status deployment/{{inputs.parameters.deployment_name}} \
+            -n {{inputs.parameters.namespace}} \
+            --timeout={{inputs.parameters.rollout_timeout}}
+
+          echo "[restart] rollout 완료 - 새 pod 전부 Ready"
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "64Mi"
+        limits:
+          cpu: "250m"
+          memory: "128Mi"
+    timeout: "10m"
+    # rollout status 타임아웃/실패는 일시적 클러스터 이슈일 수 있으므로 1회 재시도.
+    # 무한 재시도는 하지 않는다 - 반복 실패는 사람이 봐야 하는 문제다.
+    retryStrategy:
+      limit: "1"
+      retryPolicy: OnError
+
+  # ---------------------------------------------------------------------------
+  # 운영 스모크 테스트: flashlight.scripts.smoke_test_model 실행
+  #
+  # rollout이 끝났다는 것(Ready)과 "방금 승격한 버전이 정확히 떠서 정상
+  # 추론까지 되는 것"은 다른 이야기다 - /health의 model_version을 candidate
+  # 버전과 직접 대조하고, 실제 /predict 호출까지 해본다. 실패하면 이 step이
+  # 비0 종료코드를 반환해 워크플로우 전체가 실패로 끝난다 (precompute-dashboard도
+  # dependencies 때문에 실행되지 않음).
+  # ---------------------------------------------------------------------------
+  - name: smoke-test-api
+    inputs:
+      parameters:
+      - name: base_url
+      - name: expected_version
+      - name: retries
+    container:
+      image: agami-captcha.cloud:8443/agami/agami-mlops:latest
+      imagePullPolicy: IfNotPresent
+      workingDir: /workspace/ml-pipeline
+      command:
+        - python
+        - -m
+        - flashlight.scripts.smoke_test_model
+        - --base-url
+        - "{{inputs.parameters.base_url}}"
+        - --expected-version
+        - "{{inputs.parameters.expected_version}}"
+        - --retries
+        - "{{inputs.parameters.retries}}"
+      env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "250m"
+          memory: "256Mi"
+    timeout: "10m"
 
   # ---------------------------------------------------------------------------
   # 볼륨 정의

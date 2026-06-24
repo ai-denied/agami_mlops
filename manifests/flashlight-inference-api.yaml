@@ -1,191 +1,31 @@
 # =============================================================================
-# flashlight-inference-api.yaml
+# DEPRECATED — manifests/flashlight-inference-api.yaml
 #
-# flashlight CAPTCHA 추론 API 서버 Kubernetes 배포 매니페스트
+# 이 파일은 더 이상 적용 대상이 아니다. 운영 정본은
+# manifests/flashlight-inference-api/deployment.yaml (namespace: agami).
 #
-# 포함 리소스:
-#   1. Deployment  — flashlight-inference-api
-#   2. Service     — flashlight-inference-api-svc (ClusterIP)
+# 배경 (2026-06-24 클러스터 확인):
+#   - argo namespace의 flashlight-inference-api Deployment: 0/2 Available
+#     (replicas=2였지만 가동되지 않음 — 이 파일이 정의하던 리소스)
+#   - agami namespace의 flashlight-inference-api Deployment: 1/1 Available
+#     (실제로 트래픽을 서빙 중인 운영 Deployment)
 #
-# 의존:
-#   - flashlight-model-store-pvc (pvc-flashlight.yaml 에 정의)
-#     → API 서버와 같은 namespace에 있어야 한다
+# 2026-06-15 커밋(b590febc "fix: unify namespace to agami")에서 namespace를
+# agami로 옮기는 작업이 있었지만, CI(.github/workflows/build-flashlight-api.yml)의
+# MANIFEST_FILE이 이 파일(argo)을 계속 가리키고 있어 agami 쪽 매니페스트는 이후
+# 한 번도 이미지가 갱신되지 않았다. CI는 이제 manifests/flashlight-inference-api/
+# deployment.yaml을 가리키도록 수정됐다.
 #
-# 이미지 빌드:
-#   docker build -f ml-pipeline/Dockerfile.api \
-#                -t agami-captcha.cloud:8443/agami/flashlight-api:latest .
-#   docker push agami-captcha.cloud:8443/agami/flashlight-api:latest
+# 이 파일 자체는 Deployment/Service 리소스를 더 이상 포함하지 않는다 - 누군가
+# 실수로 `kubectl apply -f`를 실행해도 아무 것도 생성/변경되지 않는다.
 #
-# 적용:
-#   kubectl apply -f manifests/flashlight-inference-api.yaml -n argo
+# 정리 절차(클러스터 접근 가능한 사람이 수행):
+#   1. argo namespace에 남아있는 0/2 Deployment/Service가 실제로 미사용인지
+#      재확인 (트래픽/Ingress/다른 Service가 이 namespace를 참조하지 않는지)
+#   2. 확인되면 삭제:
+#        kubectl delete deployment flashlight-inference-api -n argo
+#        kubectl delete service    flashlight-inference-api-svc -n argo
+#   3. 삭제 후 이 파일도 git에서 제거 (rm manifests/flashlight-inference-api.yaml)
 #
-# 엔드포인트 확인:
-#   kubectl port-forward svc/flashlight-inference-api-svc 8080:80 -n argo
-#   curl http://localhost:8080/health
-# =============================================================================
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: flashlight-inference-api
-  namespace: argo
-  labels:
-    app: flashlight-inference-api
-    component: inference
-spec:
-  # ── 복제본 ────────────────────────────────────────────────────────────────
-  # ReadWriteOnce PVC를 여러 Pod이 공유하려면 동일 노드에 스케줄링되어야 한다.
-  # 멀티 노드 환경에서 scale-out이 필요한 경우 PVC를 ReadOnlyMany로 변경하거나
-  # 이미지에 model-store를 번들링하는 방식으로 전환한다.
-  replicas: 2
-
-  selector:
-    matchLabels:
-      app: flashlight-inference-api
-
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0  # 무중단 배포: 신규 Pod 준비 완료 후 구 Pod 종료
-
-  template:
-    metadata:
-      labels:
-        app: flashlight-inference-api
-        component: inference
-
-    spec:
-      # ── 보안 컨텍스트 ───────────────────────────────────────────────────────
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-
-      # ── 컨테이너 ────────────────────────────────────────────────────────────
-      containers:
-        - name: flashlight-api
-          image: agami-captcha.cloud:8443/agami/flashlight-api:d6ee2edb
-          imagePullPolicy: Always
-
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
-
-          # ── 환경 변수 ─────────────────────────────────────────────────────
-          env:
-            - name: FLASHLIGHT_MODEL_DIR
-              value: /workspace/ml-pipeline/model-store/flashlight/current
-            - name: PYTHONUNBUFFERED
-              value: "1"
-            # dashboard_cache.json 위치: model-store PVC 내 flashlight/ 디렉토리
-            # precompute_dashboard.py 가 같은 경로에 파일을 기록한다
-            - name: DASHBOARD_CACHE_PATH
-              value: /workspace/ml-pipeline/model-store/flashlight/dashboard_cache.json
-
-          # ── 리소스 ────────────────────────────────────────────────────────
-          # Memory: 기존 512Mi + dashboard_cache.json (~30MB) 여유분 추가
-          resources:
-            requests:
-              cpu: "250m"
-              memory: "384Mi"
-            limits:
-              cpu: "500m"
-              memory: "640Mi"
-
-          # ── Readiness Probe ────────────────────────────────────────────────
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            failureThreshold: 3
-            successThreshold: 1
-
-          # ── Liveness Probe ─────────────────────────────────────────────────
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 20
-            failureThreshold: 3
-
-          # ── 볼륨 마운트 ───────────────────────────────────────────────────
-          volumeMounts:
-            - name: model-store
-              mountPath: /workspace/ml-pipeline/model-store
-              readOnly: true
-
-      # ── 볼륨 정의 ────────────────────────────────────────────────────────
-      volumes:
-        - name: model-store
-          persistentVolumeClaim:
-            claimName: flashlight-model-store-pvc
-            readOnly: true
-
-      # ── 이미지 풀 시크릿 (프라이빗 레지스트리) ─────────────────────────────
-      # imagePullSecrets:
-      #   - name: agami-registry-secret
-
-      # ── 노드 선호도 (GPU 노드 제외) ────────────────────────────────────────
-      # affinity:
-      #   nodeAffinity:
-      #     preferredDuringSchedulingIgnoredDuringExecution:
-      #       - weight: 1
-      #         preference:
-      #           matchExpressions:
-      #             - key: kubernetes.io/arch
-      #               operator: In
-      #               values: ["amd64"]
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: flashlight-inference-api-svc
-  namespace: argo
-  labels:
-    app: flashlight-inference-api
-    component: inference
-spec:
-  type: ClusterIP
-  selector:
-    app: flashlight-inference-api
-  ports:
-    - name: http
-      port: 80
-      targetPort: 8080
-      protocol: TCP
-
-  # 외부 노출이 필요한 경우:
-  # type: LoadBalancer
-  # 또는 Ingress 리소스를 별도로 정의한다.
-
-# =============================================================================
-# [참고] HorizontalPodAutoscaler — CPU 기반 자동 스케일링 (선택적 적용)
-#
-# apiVersion: autoscaling/v2
-# kind: HorizontalPodAutoscaler
-# metadata:
-#   name: flashlight-inference-api-hpa
-#   namespace: argo
-# spec:
-#   scaleTargetRef:
-#     apiVersion: apps/v1
-#     kind: Deployment
-#     name: flashlight-inference-api
-#   minReplicas: 2
-#   maxReplicas: 8
-#   metrics:
-#     - type: Resource
-#       resource:
-#         name: cpu
-#         target:
-#           type: Utilization
-#           averageUtilization: 70
+# 과거 버전은 git log -p -- manifests/flashlight-inference-api.yaml 로 확인 가능.
 # =============================================================================

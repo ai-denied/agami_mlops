@@ -169,3 +169,79 @@ roleRef:
   kind: Role
   name: flashlight-workflow-role
   apiGroup: rbac.authorization.k8s.io
+
+---
+# =============================================================================
+# [4] Role + RoleBinding — flashlight-inference-api Deployment 재시작 권한
+#
+# 역할:
+#   flashlight-model-update-workflow.yaml의 restart-inference-api step이
+#   model-store/flashlight/current/ 승격 후 `kubectl rollout restart
+#   deployment/flashlight-inference-api`를 실행하기 위한 권한. 위 [2] Role과
+#   달리 inference-api가 떠 있는 namespace(예: agami)에 별도로 부여해야 한다 -
+#   ServiceAccount는 argo namespace에 있지만, Deployment는 다른 namespace에
+#   있는 cross-namespace RBAC이기 때문.
+#
+# ⚠️ namespace 값(agami)은 flashlight-model-update-workflow.yaml의
+#   inference_namespace 파라미터 기본값과 일치해야 한다. 둘 중 하나만 바꾸면
+#   rollout restart가 Forbidden 에러로 실패한다.
+#
+# 권한 그룹별 설명:
+#   - deployments (apps) get/list/watch : kubectl rollout status가 Deployment
+#     상태를 조회하는 데 필요
+#   - deployments (apps) patch          : kubectl rollout restart가 pod template
+#     annotation을 patch해서 재시작을 트리거하는 데 필요
+#   - replicasets (apps) get/list/watch : rollout status가 새 ReplicaSet의
+#     readyReplicas를 추적하는 데 필요
+#   - pods get/list/watch               : rollout status가 개별 pod Ready
+#     여부를 확인하는 데 필요 (위 [A]의 Role은 argo namespace 한정이라 별도 부여)
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flashlight-inference-restart-role
+  namespace: agami          # TODO: inference_namespace 파라미터와 동일하게 유지
+  labels:
+    app: flashlight
+    component: workflow-rbac
+
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs:
+      - get
+      - list
+      - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flashlight-inference-restart-rolebinding
+  namespace: agami           # TODO: inference_namespace 파라미터와 동일하게 유지
+  labels:
+    app: flashlight
+    component: workflow-rbac
+subjects:
+  - kind: ServiceAccount
+    name: flashlight-workflow-sa
+    namespace: argo           # ServiceAccount는 argo namespace에 그대로 둔다 (cross-namespace binding)
+roleRef:
+  kind: Role
+  name: flashlight-inference-restart-role
+  apiGroup: rbac.authorization.k8s.io

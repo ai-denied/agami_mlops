@@ -27,6 +27,8 @@ import shutil
 import sys
 from datetime import datetime
 
+from flashlight.evaluation.onnx_contract_check import validate_candidate_onnx_contract
+
 _SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 _ML_PIPELINE_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", ".."))
 _STORE            = os.path.join(_ML_PIPELINE_ROOT, "model-store", "flashlight")
@@ -59,14 +61,29 @@ def _validate_candidate(candidate_dir: str) -> None:
         )
 
 
-def _validate_onnx(onnx_path: str, normalizer_json_path: str) -> None:
-    """ONNX 세션 로딩 및 더미 추론으로 후보 모델을 검증한다."""
+def _validate_onnx(onnx_path: str, normalizer_json_path: str, metadata_path: str) -> None:
+    """ONNX runtime contract 대조 + 세션 로딩/더미 추론으로 후보 모델을 검증한다.
+
+    compare_candidate.py가 이미 이 검증을 거쳤겠지만, promote_model.py를 단독
+    실행하거나 compare 단계를 우회하는 경우를 위한 마지막 방어선이다 - run_compare가
+    스킵돼도 텐서 이름/shape가 다른 모델이 current/로 승격되는 일은 여기서 막는다."""
     try:
         import numpy as np
         import onnxruntime as ort
     except ImportError as e:
         print(f"[SKIP] 검증 의존성 미설치 — {e}")
         return
+
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    contract_problems = validate_candidate_onnx_contract(onnx_path, metadata)
+    if contract_problems:
+        raise ValueError(
+            "ONNX runtime contract 위반 — 승격 불가:\n" +
+            "\n".join(f"  - {p}" for p in contract_problems)
+        )
+    print("[OK] ONNX runtime contract 검증 통과 (x_seq/lengths/x_static -> bot_risk_score)")
 
     with open(normalizer_json_path, "r", encoding="utf-8") as f:
         params = json.load(f)
@@ -204,6 +221,7 @@ def promote(version: str, dry: bool, skip_validate: bool) -> None:
         _validate_onnx(
             os.path.join(candidate_dir, "mouse_gru.onnx"),
             os.path.join(candidate_dir, "normalizer.json"),
+            os.path.join(candidate_dir, "metadata.json"),
         )
 
     # ── 3. current 백업 ────────────────────────────────────────────────────

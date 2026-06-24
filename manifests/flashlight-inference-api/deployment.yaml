@@ -1,7 +1,13 @@
 # =============================================================================
-# flashlight-inference-api.yaml
+# manifests/flashlight-inference-api/deployment.yaml
 #
-# flashlight CAPTCHA 추론 API 서버 Kubernetes 배포 매니페스트
+# flashlight CAPTCHA 추론 API 서버 Kubernetes 배포 매니페스트 — 운영 정본(canonical).
+#
+# 2026-06-24 클러스터 확인 결과 agami namespace의 flashlight-inference-api가
+# 1/1 Available로 실제 서빙 중 (namespace: argo 쪽 동명 Deployment는 0/2로
+# 가동되지 않음 - manifests/flashlight-inference-api.yaml은 deprecated 처리됨,
+# 그 파일 헤더 참고). 이 파일이 이제 CI(.github/workflows/build-flashlight-api.yml)가
+# 이미지 태그를 갱신하는 유일한 대상이다.
 #
 # 포함 리소스:
 #   1. Deployment  — flashlight-inference-api
@@ -9,7 +15,7 @@
 #
 # 의존:
 #   - flashlight-model-store-pvc (pvc-flashlight.yaml 에 정의)
-#     → API 서버와 같은 namespace에 있어야 한다
+#     → API 서버와 같은 namespace(agami)에 있어야 한다
 #
 # 이미지 빌드:
 #   docker build -f ml-pipeline/Dockerfile.api \
@@ -17,7 +23,7 @@
 #   docker push agami-captcha.cloud:8443/agami/flashlight-api:latest
 #
 # 적용:
-#   kubectl apply -f manifests/flashlight-inference-api.yaml -n agami
+#   kubectl apply -f manifests/flashlight-inference-api/deployment.yaml -n agami
 #
 # 엔드포인트 확인:
 #   kubectl port-forward svc/flashlight-inference-api-svc 8080:80 -n agami
@@ -67,7 +73,7 @@ spec:
       # ── 컨테이너 ────────────────────────────────────────────────────────────
       containers:
         - name: flashlight-api
-          image: agami-captcha.cloud:8443/agami/flashlight-api:3e542f75
+          image: agami-captcha.cloud:8443/agami/flashlight-api:d6ee2edb
           imagePullPolicy: Always
 
           ports:

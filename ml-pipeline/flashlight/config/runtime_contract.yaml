@@ -1,0 +1,32 @@
+# flashlight ONNX runtime contract
+#
+# mouse_gru.onnx가 반드시 지켜야 하는 입출력 텐서 계약.
+# inference/onnx_mouse_detector.py가 이 이름들을 그대로 하드코딩해서
+# session.run()을 호출한다 (x_seq/lengths/x_static -> bot_risk_score) - 모델팀이
+# 이 중 하나라도 (이름/shape/dtype) 바꾸면 서빙 코드가 그대로 깨진다.
+#
+# evaluation/onnx_contract_check.py가 승격 전에 이 파일과 실제 onnx 그래프를
+# onnxruntime으로 읽어 대조한다 (metadata.json에 적힌 값만 믿지 않음).
+# 검증 실패 시 compare_candidate.py / promote_model.py가 승격을 막는다.
+
+version: 1
+
+onnx_contract:
+  inputs:
+    - name: x_seq
+      # batch, seq_len은 가변 차원(symbolic) - 모델/요청마다 달라질 수 있어
+      # 검증에서 와일드카드로 취급한다. 마지막 차원(7 = SEQ_FEATURES 개수)만
+      # 고정값으로 검증한다.
+      shape: [batch, seq_len, 7]
+      dtype: float32
+    - name: lengths
+      shape: [batch]
+      dtype: int64
+    - name: x_static
+      shape: [batch, 10]   # 10 = STATIC_FEATURES 개수
+      dtype: float32
+  outputs:
+    - name: bot_risk_score
+      shape: [batch]
+      dtype: float32
+  opset_min: 13

@@ -20,13 +20,16 @@ import json
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional, Tuple
+
+from flashlight.evaluation.onnx_contract_check import validate_candidate_onnx_contract
 
 _SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
 _ML_PIPELINE_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", ".."))
 _STORE            = os.path.join(_ML_PIPELINE_ROOT, "model-store", "flashlight")
 _CANDIDATES_DIR   = os.path.join(_STORE, "candidates")
 _CURRENT_DIR      = os.path.join(_STORE, "current")
+_CANDIDATE_ONNX_NAME = "mouse_gru.onnx"
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +93,50 @@ def _load_metadata(path: str, label: str) -> dict:
         raise FileNotFoundError(f"{label} metadata.json을 찾을 수 없습니다: {path}")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# ONNX runtime contract 게이트
+#
+# 성능 지표를 비교하기 전에 먼저 통과해야 하는 하드 게이트. config/runtime_contract.yaml
+# + metadata.json.onnx_spec을 실제 onnx 그래프와 대조한다 (onnx_contract_check.py).
+# 여기서 막히면 성능이 아무리 좋아도 승격 후보가 될 수 없다 - 모델 입출력
+# 텐서 이름/shape/dtype이 바뀌면 inference/onnx_mouse_detector.py가 그대로
+# 깨지기 때문이다.
+# ---------------------------------------------------------------------------
+
+def run_contract_check(version: str) -> Tuple[bool, List[str]]:
+    """candidates/{version}/mouse_gru.onnx를 contract + metadata.json과 대조한다.
+    (passed, problems) 반환 - problems가 비어 있으면 passed=True."""
+    candidate_dir = os.path.join(_CANDIDATES_DIR, version)
+    onnx_path = os.path.join(candidate_dir, _CANDIDATE_ONNX_NAME)
+    metadata_path = os.path.join(candidate_dir, "metadata.json")
+
+    if not os.path.isfile(onnx_path):
+        return False, [f"candidates/{version}/{_CANDIDATE_ONNX_NAME}을 찾을 수 없음: {onnx_path}"]
+
+    try:
+        metadata = _load_metadata(metadata_path, f"candidates/{version}")
+    except FileNotFoundError as e:
+        return False, [str(e)]
+
+    try:
+        problems = validate_candidate_onnx_contract(onnx_path, metadata)
+    except Exception as e:
+        return False, [f"ONNX contract 검증 중 오류 발생: {e}"]
+
+    return (len(problems) == 0), problems
+
+
+def print_contract_check(version: str, passed: bool, problems: List[str]) -> None:
+    print()
+    print(f"  ONNX runtime contract 검증 ({version}):")
+    if passed:
+        print("  [PASS] x_seq/lengths/x_static -> bot_risk_score 계약 일치")
+    else:
+        print("  [FAIL] 계약 위반 — 승격 불가:")
+        for p in problems:
+            print(f"    - {p}")
 
 
 # ---------------------------------------------------------------------------
@@ -354,16 +401,24 @@ def main():
         print(f"[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
+    contract_passed, contract_problems = run_contract_check(version)
+
     current_perf   = current_meta.get("performance", {})
     candidate_perf = candidate_meta.get("performance", {})
 
-    rows   = _build_rows(current_perf, candidate_perf)
-    passed = _overall_pass(rows)
+    rows = _build_rows(current_perf, candidate_perf)
+    # ONNX contract는 하드 게이트 - 성능이 전부 PASS여도 contract가 FAIL이면
+    # 전체 판정은 FAIL이다.
+    passed = contract_passed and _overall_pass(rows)
 
     if args.as_json:
         result = build_json_result(current_meta, candidate_meta, rows, passed)
+        result["contract_check"] = {"pass": contract_passed, "problems": contract_problems}
+        result["overall_pass"] = passed
+        result["verdict"] = "PASS" if passed else "FAIL"
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
+        print_contract_check(version, contract_passed, contract_problems)
         print_comparison(current_meta, candidate_meta, rows, passed)
 
     sys.exit(0 if passed else 1)

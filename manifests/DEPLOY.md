@@ -1,5 +1,10 @@
 # flashlight-api 배포 절차
 
+> **2026-06-24 클러스터 확인**: flashlight-inference-api는 `agami` namespace에서
+> 1/1 Available로 실제 서빙 중이다 (`argo` namespace의 동명 Deployment는 0/2,
+> 가동되지 않음 — deprecated, `manifests/flashlight-inference-api.yaml` 참고).
+> 아래 명령어는 모두 `agami` 기준으로 갱신했다.
+
 ## 환경 구조
 
 ```
@@ -52,8 +57,8 @@ docker login agami-captcha.cloud:8443
 docker push agami-captcha.cloud:8443/agami/flashlight-api:latest
 
 # 4. K8s Deployment 재시작
-kubectl rollout restart deployment/flashlight-inference-api -n argo
-kubectl rollout status  deployment/flashlight-inference-api -n argo
+kubectl rollout restart deployment/flashlight-inference-api -n agami
+kubectl rollout status  deployment/flashlight-inference-api -n agami
 ```
 
 ---
@@ -115,7 +120,7 @@ kubectl apply -f manifests/kaniko-build-flashlight-api.yaml
 kubectl logs -f job/kaniko-build-flashlight-api -n default
 
 # 4. 완료 후 Deployment 재시작
-kubectl rollout restart deployment/flashlight-inference-api -n argo
+kubectl rollout restart deployment/flashlight-inference-api -n agami
 ```
 
 ---
@@ -123,24 +128,29 @@ kubectl rollout restart deployment/flashlight-inference-api -n argo
 ## 전체 K8s 리소스 적용 순서 (최초 배포)
 
 ```bash
-# 1. PVC 적용 (model-store)
-kubectl apply -f manifests/pvc-flashlight.yaml -n argo
-kubectl get pvc -n argo   # Bound 상태 확인
+# 1. PVC 적용 (model-store) — 실제 경로는 ml-pipeline/k8s/argo-workflows/ 아래에 있음
+#    (manifest 자체에 namespace: agami가 명시되어 있어 -n 플래그는 참고용)
+kubectl apply -f ml-pipeline/k8s/argo-workflows/pvc-flashlight.yaml
+kubectl get pvc -n agami   # Bound 상태 확인
 
 # 2. RBAC 적용
-kubectl apply -f manifests/rbac-flashlight-workflow.yaml -n argo
+#    manifests/rbac-flashlight-workflow.yaml은 ServiceAccount/Role/RoleBinding을
+#    argo namespace에 두고, agami namespace의 Deployment를 patch할 수 있도록
+#    별도 Role([4])을 agami에 추가로 부여하는 cross-namespace 구성이다.
+#    각 리소스의 namespace는 manifest에 명시되어 있으므로 -n 플래그는 불필요.
+kubectl apply -f manifests/rbac-flashlight-workflow.yaml
 
 # 3. 이미지 빌드 및 push (방법 A/B/C 중 선택)
 
-# 4. Deployment + Service 적용
-kubectl apply -f manifests/flashlight-inference-api.yaml -n argo
+# 4. Deployment + Service 적용 (운영 정본 — agami)
+kubectl apply -f manifests/flashlight-inference-api/deployment.yaml -n agami
 
 # 5. 배포 상태 확인
-kubectl get pods -n argo -l app=flashlight-inference-api
-kubectl rollout status deployment/flashlight-inference-api -n argo
+kubectl get pods -n agami -l app=flashlight-inference-api
+kubectl rollout status deployment/flashlight-inference-api -n agami
 
 # 6. 헬스체크 (port-forward 사용)
-kubectl port-forward svc/flashlight-inference-api-svc 8080:80 -n argo &
+kubectl port-forward svc/flashlight-inference-api-svc 8080:80 -n agami &
 curl http://localhost:8080/health
 curl http://localhost:8080/model/info
 ```
@@ -163,7 +173,7 @@ python -m flashlight.scripts.package_for_captcha_engine \
 python -m flashlight.scripts.promote_model --version v5_20260612
         │  (model-store/flashlight/current/ 교체)
         ▼
-kubectl rollout restart deployment/flashlight-inference-api -n argo
+kubectl rollout restart deployment/flashlight-inference-api -n agami
         │  (Pod 재시작 → 새 모델 자동 로드)
         ▼
 curl http://.../health  →  "model_version": "v5_20260612"

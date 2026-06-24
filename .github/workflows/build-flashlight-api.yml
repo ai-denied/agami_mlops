@@ -18,7 +18,10 @@ on:
 env:
   REGISTRY: agami-captcha.cloud:8443
   IMAGE_NAME: agami/flashlight-api
-  MANIFEST_FILE: manifests/flashlight-inference-api.yaml
+  # 2026-06-24 클러스터 확인: agami namespace의 flashlight-inference-api가 1/1 Available로
+  # 실제 서빙 중인 운영 Deployment다 (argo namespace 쪽은 0/2, 가동 안 됨). CI가 그동안
+  # argo namespace 매니페스트만 갱신해온 것이 원인 - 운영 매니페스트 경로를 agami로 교정.
+  MANIFEST_FILE: manifests/flashlight-inference-api/deployment.yaml
 
 jobs:
   build-and-push:
