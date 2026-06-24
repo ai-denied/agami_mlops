@@ -1,0 +1,15 @@
+# =============================================================================
+# .dockerignore for build context: ./ml-pipeline
+#
+# build-face-api.yml / build-flashlight-api.yml / build-flashlight-mlops.yml /
+# build-dashboard.yml all use context: ./ml-pipeline. Docker only reads the
+# .dockerignore inside the build context dir, so it belongs here (the repo
+# root .dockerignore does not apply to this context).
+# =============================================================================
+
+# Handoff snapshots delivered to other teams. Dockerfile.face-api COPYs all
+# of facial_recognition/, so exclude these explicitly - the serving code
+# (api/, inference/) never imports them.
+facial_recognition/captcha_engine_team_handoff
+facial_recognition/ml_pipeline_team_handoff
+facial_recognition/agami_liveness_final_package

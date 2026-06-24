@@ -5,6 +5,11 @@ on:
     branches: [main]
     paths:
       - "ml-pipeline/facial_recognition/**"
+      # Handoff snapshots are not imported by the serving API.
+      # Exclude them to avoid unnecessary image rebuilds and rollouts.
+      - "!ml-pipeline/facial_recognition/captcha_engine_team_handoff/**"
+      - "!ml-pipeline/facial_recognition/ml_pipeline_team_handoff/**"
+      - "!ml-pipeline/facial_recognition/agami_liveness_final_package/**"
       - "ml-pipeline/common/**"
       - "ml-pipeline/Dockerfile.face-api"
       - "ml-pipeline/requirements-face-api.txt"

@@ -6,6 +6,7 @@
 #
 # 포함  : facial_recognition/ 패키지 코드, FastAPI + onnxruntime
 # 미포함: model-store/ → 런타임에 PVC 마운트 또는 FACE_MODEL_DIR 로 지정
+#         *_handoff/, *_final_package/ excluded via ml-pipeline/.dockerignore (unused by serving code)
 #
 # 빌드:
 #   docker build -f ml-pipeline/Dockerfile.face-api \
