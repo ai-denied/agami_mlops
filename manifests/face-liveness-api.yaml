@@ -59,7 +59,7 @@ spec:
 
       containers:
         - name: face-liveness-api
-          image: agami-captcha.cloud:8443/agami/face-liveness-api:9e838b61
+          image: agami-captcha.cloud:8443/agami/face-liveness-api:6ccc9722
           imagePullPolicy: Always
 
           ports:
