@@ -152,6 +152,66 @@ def _extract_frame_raw(points: np.ndarray) -> dict[str, float]:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# raw 랜드마크(dict[index, [x,y]] 또는 [x,y,z]) 입력 지원 — 캡차위젯팀처럼 이미
+# MediaPipe FaceMesh로 추출된 랜드마크를 그대로 보내는 엔진을 위한 경로.
+# extract_from_frames()처럼 raw 이미지에 MediaPipe를 다시 돌리지 않는다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# _extract_frame_raw()가 실제로 읽는 인덱스 전체 (LEFT_EYE/RIGHT_EYE/MOUTH_*/
+# NOSE_TIP/FACE_LEFT/FACE_RIGHT + cx_raw/cy_raw가 직접 쓰는 33/133/362/263 -
+# 전부 위 목록에 이미 포함됨). 위젯/엔진이 이 19개 인덱스만 보내도 충분하다.
+_REQUIRED_LANDMARK_INDICES = sorted({
+    *LEFT_EYE, *RIGHT_EYE,
+    MOUTH_LEFT_IDX, MOUTH_RIGHT_IDX, MOUTH_TOP_IDX, MOUTH_BOTTOM_IDX,
+    NOSE_TIP_IDX, FACE_LEFT_IDX, FACE_RIGHT_IDX,
+    EYE_LEFT_OUTER_IDX, EYE_RIGHT_OUTER_IDX,
+})
+_MAX_REQUIRED_LANDMARK_IDX = max(_REQUIRED_LANDMARK_INDICES)
+
+
+def _points_from_landmark_dict(landmarks: dict[int, list[float]], aspect_ratio: float) -> np.ndarray:
+    """dict[index, [x,y]] 또는 [x,y,z] (MediaPipe raw - x/y가 각각 너비/높이로
+    독립 정규화된 값) -> _extract_frame_raw()가 기대하는 dense points 배열.
+
+    y만 aspect_ratio(=width/height)로 나눠 보정한다 - 이미지 기반 추출
+    (_extract_one_raw)과 동일한 보정이며, 정사각형 캡처(width==height)면 항등
+    연산이라 무영향이다. z는 _extract_frame_raw() 이하에서 전혀 안 쓰이므로
+    없으면 0으로 채운다. _REQUIRED_LANDMARK_INDICES 밖의 인덱스는 무시한다
+    (전체 468개를 다 안 보내도 됨)."""
+    points = np.zeros((_MAX_REQUIRED_LANDMARK_IDX + 1, 3), dtype=np.float32)
+    for idx in _REQUIRED_LANDMARK_INDICES:
+        xy = landmarks.get(idx)
+        if xy is None:
+            continue
+        x = float(xy[0])
+        y = float(xy[1]) / aspect_ratio
+        z = float(xy[2]) if len(xy) > 2 else 0.0
+        points[idx] = (x, y, z)
+    return points
+
+
+def _extract_one_from_landmarks(
+    landmarks: dict[int, list[float]] | None,
+    width: float,
+    height: float,
+) -> dict[str, float] | None:
+    """단일 프레임의 raw 랜드마크 dict -> _extract_frame_raw() 호출. 필수 인덱스가
+    하나라도 빠지면 이 프레임을 미검출로 처리한다(None) - 일부만 있는 값으로
+    잘못된 거리/각도를 계산하는 것보다 안전하다."""
+    if not landmarks:
+        return None
+
+    missing = [i for i in _REQUIRED_LANDMARK_INDICES if i not in landmarks]
+    if missing:
+        logger.warning("랜드마크 인덱스 누락(%s) - 이 프레임은 미검출로 처리합니다.", missing)
+        return None
+
+    aspect_ratio = (width / height) if height else 1.0
+    points = _points_from_landmark_dict(landmarks, aspect_ratio)
+    return _extract_frame_raw(points)
+
+
 def _interpolate(frames: list[dict[str, float] | None]) -> list[dict[str, float] | None]:
     """학습 코드의 interpolate_frames()와 동일한 forward-fill → backward-fill."""
     result = list(frames)
@@ -291,30 +351,47 @@ class FaceFeatureExtractor:
     preprocessing/extract_features_time_norm.py와 동일한 공식을 실시간 프레임
     버퍼에 적용한다. 출력 shape: (target_frames, 20), 피처 순서는 SELECTED_FEATURES.
 
-    extract_from_frames()에 timestamps_ms(프레임별 절대 timestamp, ms)를 같이
-    넘기면 실제 캡처 간격을 반영해 velocity_tn을 계산한다(권장) - 캡처 간격이
-    불균일하거나 30fps와 다른 환경(예: 실측 67~119ms)에서는 반드시 넘겨야
-    학습분포와 스케일이 맞는다. 생략하면 frame_interval=1 fallback을 쓰며
-    로그 경고가 출력된다.
+    두 가지 입력 경로:
+    - extract_from_frames(frames, timestamps_ms): raw BGR 이미지 - 내부에서
+      MediaPipe FaceMesh를 직접 돌려 랜드마크를 추출한다.
+    - extract_from_landmarks(landmarks_list, timestamps_ms, widths, heights):
+      이미 추출된 raw MediaPipe 랜드마크(dict[index, [x,y]])를 직접 받는다 -
+      엔진이 위젯에서 랜드마크만 전달받는 구조(클라이언트가 만든 feature를
+      서버가 그대로 신뢰하지 않는 구조)에 적합. MediaPipe를 다시 안 돌리므로
+      이 경로만 쓰면 mediapipe 설치가 필요 없다(lazy import).
+
+    둘 다 timestamps_ms(프레임별 절대 timestamp, ms)를 같이 넘기면 실제 캡처
+    간격을 반영해 velocity_tn을 계산한다(권장) - 캡처 간격이 불균일하거나
+    30fps와 다른 환경(예: 실측 67~119ms)에서는 반드시 넘겨야 학습분포와
+    스케일이 맞는다. 생략하면 frame_interval=1 fallback을 쓰며 로그 경고가
+    출력된다.
     """
 
     def __init__(self, target_frames: int = 16, max_num_faces: int = 1):
         self.target_frames = int(target_frames)
         self.max_num_faces = int(max_num_faces)
+        # MediaPipe는 extract_from_frames()(raw 이미지 경로)에서만 필요하다.
+        # extract_from_landmarks()(랜드마크를 이미 받은 경로 - 캡차위젯팀 같은
+        # 경우)만 쓰는 호출자는 mediapipe를 설치/임포트할 필요가 없도록 lazy
+        # init한다.
+        self._face_mesh = None
 
-        import mediapipe as mp
+    def _ensure_face_mesh(self):
+        if self._face_mesh is None:
+            import mediapipe as mp
 
-        self._mp_face_mesh = mp.solutions.face_mesh
-        self._face_mesh = self._mp_face_mesh.FaceMesh(
-            static_image_mode=False,
-            max_num_faces=self.max_num_faces,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-        )
+            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                static_image_mode=False,
+                max_num_faces=self.max_num_faces,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5,
+            )
+        return self._face_mesh
 
     def close(self) -> None:
-        self._face_mesh.close()
+        if self._face_mesh is not None:
+            self._face_mesh.close()
 
     def extract_from_frames(
         self,
@@ -386,13 +463,91 @@ class FaceFeatureExtractor:
             indices.append(count - 1)
         return indices
 
+    def extract_from_landmarks(
+        self,
+        landmarks_list: list[dict[int, list[float]] | None],
+        timestamps_ms: list[float] | None = None,
+        widths: list[float] | None = None,
+        heights: list[float] | None = None,
+    ) -> tuple[np.ndarray, int, dict]:
+        """이미 추출된 raw MediaPipe 랜드마크를 직접 받는 진입점 - 캡차위젯팀처럼
+        엔진이 위젯에서 랜드마크+timestamp만 받고 x_seq는 엔진이 만드는 구조에
+        쓴다. extract_from_frames()와 달리 MediaPipe 추론을 다시 돌리지 않는다.
+
+        landmarks_list: 프레임별 dict[index, [x, y]] 또는 [x, y, z] (raw -
+            MediaPipe가 원래 내놓는, x/y가 각각 프레임 너비/높이로 독립
+            정규화된 0~1 값. 종횡비 보정 전). 얼굴 미검출 프레임은 None.
+        timestamps_ms: 프레임별 절대 타임스탬프(ms). 제공하면 실제 Δt로
+            velocity_tn을 보정한다(권장) - extract_from_frames()와 동일.
+        widths/heights: 프레임별 캡처 해상도(예: getUserMedia 480x480) -
+            landmarks_list와 같은 길이로 **필수**. y / (width/height) 종횡비
+            보정에 쓴다 - 정사각형 캡처(width==height)면 보정이 항등(no-op)이지만,
+            카메라 비율이 달라지는 환경에도 자동으로 맞도록 항상 받는다 (과거
+            16:9 vs 정사각형 종횡비 불일치로 인한 오탐 버그 - RETROSPECTIVE 참고).
+        """
+        n_in = len(landmarks_list)
+
+        if widths is None or heights is None or len(widths) != n_in or len(heights) != n_in:
+            raise ValueError(
+                "widths/heights가 필요합니다 (landmarks_list와 같은 길이) - "
+                "aspect-ratio 보정에 필수입니다."
+            )
+        if timestamps_ms is not None and len(timestamps_ms) != n_in:
+            raise ValueError(
+                f"timestamps_ms 길이({len(timestamps_ms)})가 "
+                f"landmarks_list 길이({n_in})와 다릅니다."
+            )
+
+        indices = self._sample_indices(n_in)
+        selected_landmarks = [landmarks_list[i] for i in indices]
+        selected_widths = [widths[i] for i in indices]
+        selected_heights = [heights[i] for i in indices]
+        selected_timestamps = (
+            [float(timestamps_ms[i]) for i in indices] if timestamps_ms is not None else None
+        )
+        n = len(selected_landmarks)
+
+        raw_frames: list[dict[str, float] | None] = []
+        face_detected_frames = 0
+        for lm, w, h in zip(selected_landmarks, selected_widths, selected_heights):
+            feat = _extract_one_from_landmarks(lm, w, h)
+            if feat is not None:
+                face_detected_frames += 1
+            raw_frames.append(feat)
+
+        valid_count = face_detected_frames
+        x_seq = np.zeros((self.target_frames, len(SELECTED_FEATURES)), dtype=np.float32)
+        face_detected = valid_count >= MIN_VALID_FRAMES
+
+        if face_detected:
+            filled = _interpolate(raw_frames)
+            clip = [f if f is not None else _zero_raw_feature() for f in filled]
+            fi_eff = _compute_fi_eff(selected_timestamps, n)
+            seq = _build_seq_array(clip, fi_eff=fi_eff)
+            use_n = min(n, self.target_frames)
+            x_seq[:use_n] = seq[:use_n]
+
+        seq_length = max(1, min(self.target_frames, n, valid_count or n))
+        info = {
+            "target_frames": self.target_frames,
+            "input_frames": n_in,
+            "used_frames": n,
+            "valid_frames": valid_count,
+            "face_detected_frames": face_detected_frames,
+            "face_detected": face_detected,
+            "face_detect_rate": face_detected_frames / max(1, n),
+            "selected_features": SELECTED_FEATURES,
+            "used_real_timestamps": selected_timestamps is not None,
+        }
+        return x_seq, seq_length, info
+
     def _extract_one_raw(self, frame_bgr: np.ndarray) -> dict[str, float] | None:
         if frame_bgr is None or frame_bgr.size == 0:
             return None
 
         image_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         image_rgb.flags.writeable = False
-        result = self._face_mesh.process(image_rgb)
+        result = self._ensure_face_mesh().process(image_rgb)
 
         if not result.multi_face_landmarks:
             return None
