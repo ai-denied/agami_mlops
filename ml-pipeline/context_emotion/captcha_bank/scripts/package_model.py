@@ -37,6 +37,27 @@ _CANDIDATES_DIR   = _STORE / "candidates"
 _W = 60
 
 
+def _json_safe(v):
+    """JSON 직렬화 불가 값(sklearn 객체, numpy 타입 등)을 안전하게 변환."""
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    try:
+        import numpy as np
+        if isinstance(v, np.integer):
+            return int(v)
+        if isinstance(v, np.floating):
+            return float(v)
+        if isinstance(v, np.ndarray):
+            return v.tolist()
+    except ImportError:
+        pass
+    try:
+        json.dumps(v)
+        return v
+    except (TypeError, ValueError):
+        return str(type(v).__name__)
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -67,9 +88,11 @@ def package(
     with eval_json.open(encoding="utf-8") as f:
         eval_result = json.load(f)
 
-    attacker_meta = {k: v for k, v in bundle.get("emotion_attacker", {}).items()
+    attacker_meta = {k: _json_safe(v)
+                     for k, v in bundle.get("emotion_attacker", {}).items()
                      if k != "model"}
-    ranker_meta   = {k: v for k, v in (bundle.get("security_ranker") or {}).items()
+    ranker_meta   = {k: _json_safe(v)
+                     for k, v in (bundle.get("security_ranker") or {}).items()
                      if k != "model"}
 
     metadata = {
