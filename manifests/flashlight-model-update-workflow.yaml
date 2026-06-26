@@ -56,6 +56,17 @@ spec:
   # 미지정 시 namespace의 default SA가 사용되며 권한 부족으로 실패할 수 있다.
   serviceAccountName: flashlight-workflow-sa
 
+  # 성공 시: pod 즉시 삭제 (디버깅 불필요, 리소스 낭비 방지)
+  # 실패 시: ttlStrategy가 담당 (아래) — podGC는 트리거되지 않음
+  podGC:
+    strategy: OnWorkflowSuccess
+
+  # 실패 시 30분간 pod/로그를 보존한 뒤 자동 삭제
+  # 성공 시 workflow 오브젝트는 10분 뒤 삭제 (pod는 podGC가 이미 처리)
+  ttlStrategy:
+    secondsAfterFailure: 1800
+    secondsAfterSuccess: 600
+
   # 워크플로우 수준 파라미터 기본값
   # 실행 시 -p 플래그로 오버라이드 가능
   arguments:
@@ -444,7 +455,8 @@ metadata:
     component: model-update-cron
 spec:
   # 매주 월요일 오전 03:00 (UTC 18:00 일요일 = KST 03:00 월요일)
-  schedule: "0 18 * * 0"
+  schedules:
+  - "0 18 * * 0"
   timezone: "UTC"
   # 동일 워크플로우가 이미 실행 중이면 새 실행을 건너뜀
   concurrencyPolicy: Forbid
