@@ -123,6 +123,8 @@ def promote(version: str, dry: bool = False) -> bool:
 
 
 def main() -> None:
+    global _STORE, _CANDIDATES_DIR, _CURRENT_DIR, _ARCHIVE_DIR
+
     ap = argparse.ArgumentParser(description="CAPTCHA bank 모델 승격")
     ap.add_argument("--version",  required=True)
     ap.add_argument("--dry-run",  action="store_true")
@@ -130,7 +132,6 @@ def main() -> None:
                     help=f"모델 스토어 루트 (기본: {_STORE})")
     args = ap.parse_args()
 
-    global _STORE, _CANDIDATES_DIR, _CURRENT_DIR, _ARCHIVE_DIR
     _STORE          = args.store
     _CANDIDATES_DIR = _STORE / "candidates"
     _CURRENT_DIR    = _STORE / "current"
