@@ -8,31 +8,37 @@ on:
       - "ml-pipeline/Dockerfile.captcha-bank"
       - "ml-pipeline/requirements-captcha-bank.txt"
       - ".github/workflows/build-captcha-bank.yml"
+      # manifests/** 제외 — CI가 매니페스트를 커밋할 때 무한 루프 방지
 
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Image tag (default: latest)"
+        description: "Image tag (비워두면 SHA 자동 사용)"
         required: false
-        default: "latest"
+        default: ""
 
 env:
   REGISTRY: agami-captcha.cloud:8443
   IMAGE_NAME: agami/agami-captcha-bank
+  MANIFEST_FILE: manifests/context-emotion-api/deployment.yaml
 
 jobs:
   build-and-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
 
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      full_image: ${{ steps.tag.outputs.full_image }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Set image tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
             TAG="${{ github.event.inputs.image_tag }}"
           else
             TAG="${GITHUB_SHA::8}"
@@ -41,17 +47,17 @@ jobs:
           echo "full_image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Login to Harbor
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v3.10.0
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6.16.0
         with:
           context: ./ml-pipeline
           file: ./ml-pipeline/Dockerfile.captcha-bank
@@ -62,28 +68,32 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Print pushed image
-        run: |
-          echo "Pushed image:"
-          echo "${{ steps.tag.outputs.full_image }}"
-          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-
-  deploy:
-    name: Rollout Restart
+  update-manifest:
+    name: Update Image Tag in Manifest
     needs: build-and-push
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set kubeconfig
+      - name: Update image tag in manifest
         run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+          NEW_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.tag }}"
+          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${NEW_IMAGE}|g" \
+            ${{ env.MANIFEST_FILE }}
+          echo "Updated image to: ${NEW_IMAGE}"
+          grep "image:" ${{ env.MANIFEST_FILE }}
 
-      - name: Rollout restart
+      - name: Commit and push manifest
         run: |
-          kubectl rollout restart deployment/context-emotion-api -n agami
-          kubectl rollout status deployment/context-emotion-api -n agami --timeout=120s
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ env.MANIFEST_FILE }}
+          git diff --staged --quiet && echo "변경 없음, skip" && exit 0
+          git commit -m "chore: update captcha-api image → ${{ needs.build-and-push.outputs.tag }} [skip ci]"
+          git pull --rebase origin main
+          git push
