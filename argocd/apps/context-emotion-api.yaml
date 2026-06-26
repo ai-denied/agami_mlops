@@ -1,0 +1,57 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: context-emotion-api
+  namespace: argocd
+  labels:
+    app: context-emotion-api
+    team: agami
+
+  # ── ArgoCD Image Updater 어노테이션 ───────────────────────────────────────────
+  #
+  # 동작 방식:
+  #   1. Image Updater 가 Harbor 를 2분마다 폴링
+  #   2. agami-captcha-bank:latest 의 digest 변화 감지
+  #   3. Application 의 이미지 파라미터를 자동 override (git 커밋 없음)
+  #   4. ArgoCD 가 새 이미지로 자동 rollout
+  #
+  # update-strategy: digest
+  #   태그는 항상 'latest' 를 유지하되, digest 변화로 새 배포 트리거.
+  #   Harbor 에 latest 이미지를 push 하면 자동으로 감지된다.
+  #
+  # write-back-method: argocd
+  #   git 에 커밋하지 않고 ArgoCD Application 파라미터로만 override.
+  #   Application 재생성 시 다음 폴링 주기에 자동 복원됨.
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: >-
+      captcha-api=agami-captcha.cloud:8443/agami/agami-captcha-bank:latest
+    argocd-image-updater.argoproj.io/captcha-api.update-strategy: digest
+    argocd-image-updater.argoproj.io/captcha-api.pull-secret: >-
+      pullsecret:agami/harbor-regcred
+    argocd-image-updater.argoproj.io/write-back-method: argocd
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ai-denied/agami_mlops.git
+    targetRevision: main
+    path: manifests/context-emotion-api
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agami
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m

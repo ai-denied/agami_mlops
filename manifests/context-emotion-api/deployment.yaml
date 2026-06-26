@@ -1,5 +1,5 @@
 # =============================================================================
-# context-emotion-captcha-api — Deployment + Service
+# context-emotion-api — Deployment + Service
 #
 # 포트 8083 | FastAPI (uvicorn) | 감정 CAPTCHA 출제·채점 서빙 API
 #
@@ -9,8 +9,8 @@
 #   attempt-logs PVC (ReadWrite) → /data/context_emotion/attempt_logs
 #
 # 의존 PVC:
-#   captcha-bank-model-store-pvc  (pvc.yaml 또는 argo-workflows PVC 참조)
-#   captcha-bank-data-pvc         (pvc.yaml)
+#   captcha-bank-model-store-pvc  (pvc-captcha-bank.yaml)
+#   captcha-bank-data-pvc         (pvc-captcha-bank.yaml)
 #   captcha-bank-attempt-logs-pvc (pvc.yaml)
 # =============================================================================
 
@@ -18,20 +18,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: context-emotion-captcha-api
+  name: context-emotion-api
   namespace: agami
   labels:
-    app: context-emotion-captcha-api
+    app: context-emotion-api
     component: serving
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: context-emotion-captcha-api
+      app: context-emotion-api
   template:
     metadata:
       labels:
-        app: context-emotion-captcha-api
+        app: context-emotion-api
         component: serving
     spec:
       imagePullSecrets:
@@ -132,15 +132,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: context-emotion-captcha-api
+  name: context-emotion-api
   namespace: agami
   labels:
-    app: context-emotion-captcha-api
+    app: context-emotion-api
     component: serving
 spec:
   type: ClusterIP
   selector:
-    app: context-emotion-captcha-api
+    app: context-emotion-api
   ports:
   - name: http
     port: 8083
