@@ -129,11 +129,9 @@ spec:
       - name: model-store
         persistentVolumeClaim:
           claimName: captcha-bank-model-store-pvc
-          readOnly: true
       - name: data
         persistentVolumeClaim:
           claimName: captcha-bank-data-pvc
-          readOnly: true
       - name: attempt-logs
         persistentVolumeClaim:
           claimName: captcha-bank-attempt-logs-pvc
