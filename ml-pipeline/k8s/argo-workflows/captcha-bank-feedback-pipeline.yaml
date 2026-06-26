@@ -1,0 +1,465 @@
+# =============================================================================
+# captcha-bank-feedback-pipeline.yaml
+#
+# Feedback MLOps — attempt_logs 기반 captcha_pool 자동 갱신 파이프라인
+#
+# 흐름 (12 단계):
+#   F1. check-trigger       트리거 조건 확인 (미충족 시 전체 skip)
+#   F2. aggregate-logs      attempt_logs → aggregated_stats.csv
+#   F3. score-quality       aggregated_stats → quality_scores.csv
+#   F4. build-pool          current_pool + quality_scores → feedback_pool.csv
+#   ── train 파이프라인 연계 ────────────────────────────────────────────
+#    1. validate-pool       feedback_pool.csv 구조 검증
+#    2. train-model         attack model 재학습              ─┐ 병렬
+#    4. choice-report       선택지 정책 리포트               ─┘
+#    3. evaluate-model      보안 평가 (train-model 완료 후)
+#    5. package-model       패키징 (evaluate + choice-report 완료 후)
+#    6. compare-candidate   승격 게이트 비교
+#    7. promote-model       current/ 교체
+#    8. smoke-test          smoke test
+#
+# 적용:
+#   kubectl apply -f k8s/argo-workflows/captcha-bank-feedback-pipeline.yaml -n agami
+#
+# 수동 실행:
+#   argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
+#     -p version=v1_feedback_20260701 \
+#     -n agami --watch
+#
+# 트리거 조건 무시 (강제 실행):
+#   argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
+#     -p version=v1_feedback_20260701 -p force=true \
+#     -n agami --watch
+#
+# PVC 요구사항:
+#   captcha-bank-model-store-pvc  ReadWriteMany  10Gi  (/workspace/ml-pipeline/model-store)
+#   captcha-bank-data-pvc         ReadOnlyMany   50Gi  (/data/context_emotion)
+#   captcha-bank-attempt-logs-pvc ReadWriteOnce   5Gi  (/data/context_emotion/attempt_logs)
+# =============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: captcha-bank-feedback-pipeline
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: feedback-mlops
+
+spec:
+  serviceAccountName: captcha-bank-workflow-sa
+  entrypoint: feedback-dag
+
+  # ── 공통 파라미터 ─────────────────────────────────────────────────────────
+  arguments:
+    parameters:
+    - name: version
+      value: ""           # 빈 문자열이면 스크립트가 날짜 기반 자동 생성
+    - name: force
+      value: "false"      # "true" 이면 트리거 게이트 무시
+    - name: since-days
+      value: "30"         # attempt 집계 기간 (일)
+    - name: new-problems-path
+      value: ""           # 신규 검수 완료 문제 CSV 경로 (선택)
+
+  # ── 볼륨 ─────────────────────────────────────────────────────────────────
+  volumes:
+  - name: model-store
+    persistentVolumeClaim:
+      claimName: captcha-bank-model-store-pvc
+  - name: data
+    persistentVolumeClaim:
+      claimName: captcha-bank-data-pvc
+  - name: attempt-logs
+    persistentVolumeClaim:
+      claimName: captcha-bank-attempt-logs-pvc
+
+  # ── 공통 볼륨 마운트 ─────────────────────────────────────────────────────
+  volumeClaimTemplates: []
+
+  templates:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # DAG: 12 단계
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: feedback-dag
+    dag:
+      tasks:
+
+      # ── F1. 트리거 조건 확인 ───────────────────────────────────────────────
+      - name: check-trigger
+        template: check-trigger-tmpl
+        arguments:
+          parameters:
+          - name: force
+            value: "{{workflow.parameters.force}}"
+
+      # ── F2. attempt 로그 집계 ──────────────────────────────────────────────
+      - name: aggregate-logs
+        dependencies: [check-trigger]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.feedback.aggregate_attempt_logs \
+                --log-dir   /data/context_emotion/attempt_logs \
+                --since-days {{workflow.parameters.since-days}} \
+                --output    "${WORKDIR}/aggregated_stats.csv"
+
+      # ── F3. 품질 스코어링 ─────────────────────────────────────────────────
+      - name: score-quality
+        dependencies: [aggregate-logs]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.feedback.score_problem_quality \
+                --agg-csv "${WORKDIR}/aggregated_stats.csv" \
+                --policy  context_emotion/captcha_bank/config/feedback_quality_policy.yaml \
+                --output  "${WORKDIR}/quality_scores.csv"
+
+      # ── F4. candidate pool 빌드 ───────────────────────────────────────────
+      - name: build-pool
+        dependencies: [score-quality]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              NEW_PROBLEMS_ARG=""
+              if [ -n "{{workflow.parameters.new-problems-path}}" ] && \
+                 [ -f "{{workflow.parameters.new-problems-path}}" ]; then
+                NEW_PROBLEMS_ARG="--new-problems {{workflow.parameters.new-problems-path}}"
+              fi
+              python -m context_emotion.captcha_bank.feedback.build_candidate_pool_from_feedback \
+                --current-pool model-store/captcha_bank/current/captcha_pool.csv \
+                --quality-csv  "${WORKDIR}/quality_scores.csv" \
+                --output       "${WORKDIR}/feedback_pool.csv" \
+                ${NEW_PROBLEMS_ARG}
+
+      # ── 1. validate-pool ──────────────────────────────────────────────────
+      - name: validate-pool
+        dependencies: [build-pool]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.scripts.validate_captcha_pool \
+                --pool-csv "${WORKDIR}/feedback_pool.csv"
+
+      # ── 2. train-model (validate 완료 후) ─────────────────────────────────
+      - name: train-model
+        dependencies: [validate-pool]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              VERSION="{{workflow.parameters.version}}"
+              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+              python -m context_emotion.captcha_bank.training.train_attack_model \
+                --pool-csv  "${WORKDIR}/feedback_pool.csv" \
+                --model-out "${WORKDIR}/model.joblib" \
+                --version   "${VERSION}"
+
+      # ── 4. choice-report (validate 완료 후, train-model 과 병렬) ──────────
+      - name: choice-report
+        dependencies: [validate-pool]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.build_choice_policy_report \
+                --input-csv  "${WORKDIR}/feedback_pool.csv" \
+                --output-csv "${WORKDIR}/captcha_pool_with_choices.csv" \
+                --output-md  "${WORKDIR}/choice_policy_report.md" \
+              || echo "[경고] choice-report 생성 실패 — 패키징 시 제외"
+
+      # ── 3. evaluate-model (train 완료 후) ─────────────────────────────────
+      - name: evaluate-model
+        dependencies: [train-model]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              VERSION="{{workflow.parameters.version}}"
+              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+              python -m context_emotion.captcha_bank.evaluation.run_attack_eval \
+                --pool-csv  "${WORKDIR}/feedback_pool.csv" \
+                --model     "${WORKDIR}/model.joblib" \
+                --output    "${WORKDIR}/evaluation_result.json" \
+                --version   "${VERSION}"
+
+      # ── 5. package-model (evaluate + choice-report 완료 후) ───────────────
+      - name: package-model
+        dependencies: [evaluate-model, choice-report]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              VERSION="{{workflow.parameters.version}}"
+              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+              python -m context_emotion.captcha_bank.scripts.package_model \
+                --version     "${VERSION}" \
+                --model       "${WORKDIR}/model.joblib" \
+                --eval-json   "${WORKDIR}/evaluation_result.json" \
+                --pool-csv    "${WORKDIR}/feedback_pool.csv" \
+                --policy-md   "${WORKDIR}/choice_policy_report.md"
+
+      # ── 6. compare-candidate ──────────────────────────────────────────────
+      - name: compare-candidate
+        dependencies: [package-model]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              VERSION="{{workflow.parameters.version}}"
+              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+              python -m context_emotion.captcha_bank.scripts.compare_candidate \
+                --version "${VERSION}" \
+                --policy  context_emotion/captcha_bank/config/promotion_policy.yaml
+
+      # ── 7. promote-model ──────────────────────────────────────────────────
+      - name: promote-model
+        dependencies: [compare-candidate]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              VERSION="{{workflow.parameters.version}}"
+              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+              python -m context_emotion.captcha_bank.scripts.promote_model \
+                --version "${VERSION}"
+
+      # ── 8. smoke-test ─────────────────────────────────────────────────────
+      - name: smoke-test
+        dependencies: [promote-model]
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        template: run-step
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.scripts.smoke_test \
+                --model-dir model-store/captcha_bank/current
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Template: check-trigger
+  # trigger_policy.py를 실행하고 should-run 파라미터를 출력한다.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: check-trigger-tmpl
+    inputs:
+      parameters:
+      - name: force
+        value: "false"
+    outputs:
+      parameters:
+      - name: should-run
+        valueFrom:
+          path: /tmp/should_run.txt
+    container:
+      image: agami-captcha.cloud:8443/agami/agami-captcha-bank:latest
+      imagePullPolicy: Always
+      command: [bash, -c]
+      args:
+      - |
+        cd /workspace/ml-pipeline
+        FORCE_ARG=""
+        if [ "{{inputs.parameters.force}}" = "true" ]; then
+          FORCE_ARG="--force"
+        fi
+        python -m context_emotion.captcha_bank.feedback.trigger_policy \
+          --log-dir   /data/context_emotion/attempt_logs \
+          --model-dir model-store/captcha_bank/current \
+          --policy    context_emotion/captcha_bank/config/feedback_trigger_policy.yaml \
+          --output    /tmp/should_run.txt \
+          ${FORCE_ARG}
+        # trigger_policy 는 미충족 시 exit 1 — 항상 0으로 끝내야 Argo가 실패 처리하지 않음
+        exit 0
+      env:
+      - name: PYTHONPATH
+        value: "/workspace/ml-pipeline"
+      - name: PYTHONUNBUFFERED
+        value: "1"
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+      - name: data
+        mountPath: /data/context_emotion
+        readOnly: true
+      - name: attempt-logs
+        mountPath: /data/context_emotion/attempt_logs
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Template: run-step (재사용 가능 단계 템플릿)
+  # model-store PVC 의 .workdir/{version}/ 을 WORKDIR 로 사용한다.
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: run-step
+    inputs:
+      parameters:
+      - name: version
+      - name: command
+    container:
+      image: agami-captcha.cloud:8443/agami/agami-captcha-bank:latest
+      imagePullPolicy: Always
+      command: [bash, -c]
+      args:
+      - |
+        VERSION="{{inputs.parameters.version}}"
+        [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+        export WORKDIR="/workspace/ml-pipeline/model-store/.workdir/${VERSION}"
+        mkdir -p "${WORKDIR}"
+        cd /workspace/ml-pipeline
+        {{inputs.parameters.command}}
+      env:
+      - name: PYTHONPATH
+        value: "/workspace/ml-pipeline"
+      - name: PYTHONUNBUFFERED
+        value: "1"
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+      - name: data
+        mountPath: /data/context_emotion
+        readOnly: true
+      - name: attempt-logs
+        mountPath: /data/context_emotion/attempt_logs
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "4"
+          memory: "4Gi"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Exit Handler: WORKDIR 정리
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: exit-handler
+    steps:
+    - - name: cleanup-workdir
+        template: cleanup-tmpl
+        arguments:
+          parameters:
+          - name: version
+            value: "{{workflow.parameters.version}}"
+
+  - name: cleanup-tmpl
+    inputs:
+      parameters:
+      - name: version
+    container:
+      image: agami-captcha.cloud:8443/agami/agami-captcha-bank:latest
+      imagePullPolicy: Always
+      command: [bash, -c]
+      args:
+      - |
+        VERSION="{{inputs.parameters.version}}"
+        [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
+        WORKDIR="/workspace/ml-pipeline/model-store/.workdir/${VERSION}"
+        if [ -d "${WORKDIR}" ]; then
+          rm -rf "${WORKDIR}"
+          echo "정리 완료: ${WORKDIR}"
+        fi
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+
+---
+# =============================================================================
+# CronWorkflow — 매일 새벽 2시 자동 트리거 체크
+# (trigger_policy 가 조건 미충족 시 자동 skip)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: captcha-bank-feedback-cron
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: feedback-mlops
+spec:
+  schedule: "0 2 * * *"        # 매일 02:00 UTC
+  timezone: "Asia/Seoul"       # KST 기준 11:00
+  concurrencyPolicy: Forbid    # 이전 실행 중이면 skip
+  startingDeadlineSeconds: 600
+  workflowSpec:
+    serviceAccountName: captcha-bank-workflow-sa
+    entrypoint: feedback-dag
+    arguments:
+      parameters:
+      - name: version
+        value: ""
+      - name: force
+        value: "false"
+      - name: since-days
+        value: "30"
+      - name: new-problems-path
+        value: ""
+    # WorkflowTemplate 참조 (entrypoint 오버라이드)
+    workflowTemplateRef:
+      name: captcha-bank-feedback-pipeline
+    volumes:
+    - name: model-store
+      persistentVolumeClaim:
+        claimName: captcha-bank-model-store-pvc
+    - name: data
+      persistentVolumeClaim:
+        claimName: captcha-bank-data-pvc
+    - name: attempt-logs
+      persistentVolumeClaim:
+        claimName: captcha-bank-attempt-logs-pvc
