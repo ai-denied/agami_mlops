@@ -1,40 +1,47 @@
 # =============================================================================
 # captcha-bank-feedback-pipeline.yaml
 #
-# Feedback MLOps — attempt_logs 기반 captcha_pool 자동 갱신 파이프라인
+# Feedback MLOps — attempt_logs 기반 captcha_pool 완전 자동 갱신 파이프라인
 #
-# 흐름 (12 단계):
-#   F1. check-trigger       트리거 조건 확인 (미충족 시 전체 skip)
-#   F2. aggregate-logs      attempt_logs → aggregated_stats.csv
-#   F3. score-quality       aggregated_stats → quality_scores.csv
-#   F4. build-pool          current_pool + quality_scores → feedback_pool.csv
-#   ── train 파이프라인 연계 ────────────────────────────────────────────
-#    1. validate-pool       feedback_pool.csv 구조 검증
-#    2. train-model         attack model 재학습              ─┐ 병렬
-#    4. choice-report       선택지 정책 리포트               ─┘
-#    3. evaluate-model      보안 평가 (train-model 완료 후)
-#    5. package-model       패키징 (evaluate + choice-report 완료 후)
-#    6. compare-candidate   승격 게이트 비교
-#    7. promote-model       current/ 교체
-#    8. smoke-test          smoke test
+# 동작 보장:
+#   1. check-trigger 가 항상 exit 0 → 하위 DAG 파라미터 해석 오류 없음
+#   2. should-run == 'false' 이면 이후 11개 태스크 모두 Skipped (정상 종료)
+#   3. should-run == 'true'  이면 aggregate → score → pool → validate → train
+#                                 → eval → package → compare → promote → smoke
+#   4. compare gate 실패 시 promote-model 태스크가 Skipped → current 유지
+#   5. 모든 중간 아티팩트가 model-store PVC 에 보존됨 (exit handler 없음)
+#   6. CronWorkflow 는 매일 KST 11:00 자동 실행, suspend: false
+#
+# 아티팩트 저장 위치:
+#   model-store/captcha_bank/.workdir/{version}/
+#     trigger_decision.json      — 트리거 게이트 결과
+#     aggregated_stats.csv       — attempt 집계
+#     quality_scores.csv         — 문제별 품질 레이블
+#     feedback_pool.csv          — 갱신된 candidate pool
+#   model-store/captcha_bank/candidates/{version}/
+#     model.joblib               — 학습된 공격 모델
+#     evaluation_result.json     — 보안 지표
+#     metadata.json              — 패키지 메타데이터
+#     captcha_pool.csv           — 패키징된 pool
+#     promotion_decision.json    — compare 게이트 결과
+#   model-store/captcha_bank/current/
+#     (promote 성공 시 위 candidates/{version}/ 내용으로 교체)
 #
 # 적용:
 #   kubectl apply -f k8s/argo-workflows/captcha-bank-feedback-pipeline.yaml -n agami
 #
-# 수동 실행:
+# 수동 즉시 실행:
 #   argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
-#     -p version=v1_feedback_20260701 \
-#     -n agami --watch
+#     -p version="" -n agami --watch
 #
-# 트리거 조건 무시 (강제 실행):
+# 트리거 조건 무시 (강제):
 #   argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
-#     -p version=v1_feedback_20260701 -p force=true \
-#     -n agami --watch
+#     -p force=true -n agami --watch
 #
 # PVC 요구사항:
-#   captcha-bank-model-store-pvc  ReadWriteMany  10Gi  (/workspace/ml-pipeline/model-store)
-#   captcha-bank-data-pvc         ReadOnlyMany   50Gi  (/data/context_emotion)
-#   captcha-bank-attempt-logs-pvc ReadWriteOnce   5Gi  (/data/context_emotion/attempt_logs)
+#   captcha-bank-model-store-pvc  ReadWriteMany  10Gi
+#   captcha-bank-data-pvc         ReadOnlyMany   50Gi
+#   captcha-bank-attempt-logs-pvc ReadWriteOnce   5Gi
 # =============================================================================
 
 apiVersion: argoproj.io/v1alpha1
@@ -54,11 +61,9 @@ spec:
   arguments:
     parameters:
     - name: version
-      value: ""           # 빈 문자열이면 스크립트가 날짜 기반 자동 생성
+      value: ""           # 빈 문자열 → 스크립트가 날짜+_feedback 자동 생성
     - name: force
-      value: "false"      # "true" 이면 트리거 게이트 무시
-    - name: since-days
-      value: "30"         # attempt 집계 기간 (일)
+      value: "false"      # "true" → 트리거 게이트 무시, 즉시 실행
     - name: new-problems-path
       value: ""           # 신규 검수 완료 문제 CSV 경로 (선택)
 
@@ -74,19 +79,18 @@ spec:
     persistentVolumeClaim:
       claimName: captcha-bank-attempt-logs-pvc
 
-  # ── 공통 볼륨 마운트 ─────────────────────────────────────────────────────
-  volumeClaimTemplates: []
-
   templates:
 
   # ──────────────────────────────────────────────────────────────────────────
-  # DAG: 12 단계
+  # DAG
   # ──────────────────────────────────────────────────────────────────────────
   - name: feedback-dag
     dag:
       tasks:
 
       # ── F1. 트리거 조건 확인 ───────────────────────────────────────────────
+      # check-trigger 는 always exit 0.
+      # should-run 출력값이 'true' / 'false' 로 하위 태스크를 제어한다.
       - name: check-trigger
         template: check-trigger-tmpl
         arguments:
@@ -95,9 +99,10 @@ spec:
             value: "{{workflow.parameters.force}}"
 
       # ── F2. attempt 로그 집계 ──────────────────────────────────────────────
+      # --model-dir 를 통해 promoted_at 이후 로그만 집계한다.
       - name: aggregate-logs
         dependencies: [check-trigger]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -107,13 +112,13 @@ spec:
             value: |
               python -m context_emotion.captcha_bank.feedback.aggregate_attempt_logs \
                 --log-dir   /data/context_emotion/attempt_logs \
-                --since-days {{workflow.parameters.since-days}} \
+                --model-dir model-store/captcha_bank/current \
                 --output    "${WORKDIR}/aggregated_stats.csv"
 
       # ── F3. 품질 스코어링 ─────────────────────────────────────────────────
       - name: score-quality
         dependencies: [aggregate-logs]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -129,7 +134,7 @@ spec:
       # ── F4. candidate pool 빌드 ───────────────────────────────────────────
       - name: build-pool
         dependencies: [score-quality]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -151,7 +156,7 @@ spec:
       # ── 1. validate-pool ──────────────────────────────────────────────────
       - name: validate-pool
         dependencies: [build-pool]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -162,10 +167,10 @@ spec:
               python -m context_emotion.captcha_bank.scripts.validate_captcha_pool \
                 --pool-csv "${WORKDIR}/feedback_pool.csv"
 
-      # ── 2. train-model (validate 완료 후) ─────────────────────────────────
+      # ── 2. train-model ────────────────────────────────────────────────────
       - name: train-model
         dependencies: [validate-pool]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -173,17 +178,15 @@ spec:
             value: "{{workflow.parameters.version}}"
           - name: command
             value: |
-              VERSION="{{workflow.parameters.version}}"
-              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
               python -m context_emotion.captcha_bank.training.train_attack_model \
                 --pool-csv  "${WORKDIR}/feedback_pool.csv" \
                 --model-out "${WORKDIR}/model.joblib" \
                 --version   "${VERSION}"
 
-      # ── 4. choice-report (validate 완료 후, train-model 과 병렬) ──────────
+      # ── 4. choice-report (train-model 과 병렬) ────────────────────────────
       - name: choice-report
         dependencies: [validate-pool]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -197,10 +200,10 @@ spec:
                 --output-md  "${WORKDIR}/choice_policy_report.md" \
               || echo "[경고] choice-report 생성 실패 — 패키징 시 제외"
 
-      # ── 3. evaluate-model (train 완료 후) ─────────────────────────────────
+      # ── 3. evaluate-model ─────────────────────────────────────────────────
       - name: evaluate-model
         dependencies: [train-model]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -208,18 +211,18 @@ spec:
             value: "{{workflow.parameters.version}}"
           - name: command
             value: |
-              VERSION="{{workflow.parameters.version}}"
-              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
               python -m context_emotion.captcha_bank.evaluation.run_attack_eval \
                 --pool-csv  "${WORKDIR}/feedback_pool.csv" \
                 --model     "${WORKDIR}/model.joblib" \
                 --output    "${WORKDIR}/evaluation_result.json" \
                 --version   "${VERSION}"
 
-      # ── 5. package-model (evaluate + choice-report 완료 후) ───────────────
+      # ── 5. package-model ──────────────────────────────────────────────────
+      # evaluate + choice-report 모두 완료 후 실행.
+      # feedback 아티팩트를 candidates/{version}/feedback_artifacts/ 에 복사해 보존.
       - name: package-model
         dependencies: [evaluate-model, choice-report]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -227,8 +230,6 @@ spec:
             value: "{{workflow.parameters.version}}"
           - name: command
             value: |
-              VERSION="{{workflow.parameters.version}}"
-              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
               python -m context_emotion.captcha_bank.scripts.package_model \
                 --version     "${VERSION}" \
                 --model       "${WORKDIR}/model.joblib" \
@@ -236,10 +237,19 @@ spec:
                 --pool-csv    "${WORKDIR}/feedback_pool.csv" \
                 --policy-md   "${WORKDIR}/choice_policy_report.md"
 
+              # ── feedback 아티팩트를 candidates/{VERSION}/ 에 영구 보존 ──
+              ARTIFACTS="model-store/captcha_bank/candidates/${VERSION}/feedback_artifacts"
+              mkdir -p "${ARTIFACTS}"
+              for f in trigger_decision.json aggregated_stats.csv quality_scores.csv feedback_pool.csv; do
+                [ -f "${WORKDIR}/${f}" ] && cp "${WORKDIR}/${f}" "${ARTIFACTS}/${f}" && echo "  archived: ${f}"
+              done
+
       # ── 6. compare-candidate ──────────────────────────────────────────────
+      # promotion_decision.json 을 candidates/{version}/ 에 저장한다.
+      # gate 실패 시 exit 1 → promote-model 이 Skipped, current 유지.
       - name: compare-candidate
         dependencies: [package-model]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -247,16 +257,17 @@ spec:
             value: "{{workflow.parameters.version}}"
           - name: command
             value: |
-              VERSION="{{workflow.parameters.version}}"
-              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
               python -m context_emotion.captcha_bank.scripts.compare_candidate \
-                --version "${VERSION}" \
-                --policy  context_emotion/captcha_bank/config/promotion_policy.yaml
+                --version     "${VERSION}" \
+                --policy      context_emotion/captcha_bank/config/promotion_policy.yaml \
+                --output-json "${WORKDIR}/promotion_decision.json"
 
       # ── 7. promote-model ──────────────────────────────────────────────────
+      # compare-candidate 성공(exit 0) 시에만 실행된다.
+      # 수동 승인 없음 — gate 통과 = 자동 승격.
       - name: promote-model
         dependencies: [compare-candidate]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -264,15 +275,13 @@ spec:
             value: "{{workflow.parameters.version}}"
           - name: command
             value: |
-              VERSION="{{workflow.parameters.version}}"
-              [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
               python -m context_emotion.captcha_bank.scripts.promote_model \
                 --version "${VERSION}"
 
       # ── 8. smoke-test ─────────────────────────────────────────────────────
       - name: smoke-test
         dependencies: [promote-model]
-        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == true"
+        when: "{{tasks.check-trigger.outputs.parameters.should-run}} == 'true'"
         template: run-step
         arguments:
           parameters:
@@ -284,8 +293,12 @@ spec:
                 --model-dir model-store/captcha_bank/current
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Template: check-trigger
-  # trigger_policy.py를 실행하고 should-run 파라미터를 출력한다.
+  # Template: check-trigger-tmpl
+  #
+  # 핵심 보장:
+  #   - 항상 exit 0 (trigger_policy.py 가 exit 1 으로 끝나도 무시)
+  #   - /tmp/should_run.txt 가 반드시 "true" 또는 "false" 로 기록됨
+  #   - trigger_decision.json 이 WORKDIR 에 보존됨
   # ──────────────────────────────────────────────────────────────────────────
   - name: check-trigger-tmpl
     inputs:
@@ -303,18 +316,37 @@ spec:
       command: [bash, -c]
       args:
       - |
+        set -e
         cd /workspace/ml-pipeline
+
+        # WORKDIR 생성 (version 파라미터는 없으므로 날짜 기반)
+        VERSION="$(date -u +%Y%m%d)_feedback"
+        WORKDIR="model-store/captcha_bank/.workdir/${VERSION}"
+        mkdir -p "${WORKDIR}"
+
+        # should_run.txt fail-safe 초기화
+        echo "false" > /tmp/should_run.txt
+
         FORCE_ARG=""
         if [ "{{inputs.parameters.force}}" = "true" ]; then
           FORCE_ARG="--force"
         fi
+
+        # trigger_policy 실행 — exit 1 은 "트리거 안 함" 을 의미, 파이프라인 실패 아님
         python -m context_emotion.captcha_bank.feedback.trigger_policy \
-          --log-dir   /data/context_emotion/attempt_logs \
-          --model-dir model-store/captcha_bank/current \
-          --policy    context_emotion/captcha_bank/config/feedback_trigger_policy.yaml \
-          --output    /tmp/should_run.txt \
-          ${FORCE_ARG}
-        # trigger_policy 는 미충족 시 exit 1 — 항상 0으로 끝내야 Argo가 실패 처리하지 않음
+          --log-dir    /data/context_emotion/attempt_logs \
+          --model-dir  model-store/captcha_bank/current \
+          --policy     context_emotion/captcha_bank/config/feedback_trigger_policy.yaml \
+          --output     /tmp/should_run.txt \
+          --output-json "${WORKDIR}/trigger_decision.json" \
+          ${FORCE_ARG} || true
+
+        # 파일이 없으면 (예외 등) fail-safe
+        [ -f /tmp/should_run.txt ] || echo "false" > /tmp/should_run.txt
+
+        echo "should_run=$(cat /tmp/should_run.txt)"
+
+        # always exit 0 — Argo 가 파라미터를 읽을 수 있어야 한다
         exit 0
       env:
       - name: PYTHONPATH
@@ -329,17 +361,20 @@ spec:
         readOnly: true
       - name: attempt-logs
         mountPath: /data/context_emotion/attempt_logs
+        readOnly: true
       resources:
         requests:
-          cpu: "100m"
+          cpu: "200m"
           memory: "256Mi"
         limits:
           cpu: "500m"
           memory: "512Mi"
 
   # ──────────────────────────────────────────────────────────────────────────
-  # Template: run-step (재사용 가능 단계 템플릿)
-  # model-store PVC 의 .workdir/{version}/ 을 WORKDIR 로 사용한다.
+  # Template: run-step
+  #
+  # 공유 PVC 의 .workdir/{VERSION}/ 을 WORKDIR 로 사용한다.
+  # VERSION 파라미터가 비어있으면 날짜+_feedback 으로 자동 생성.
   # ──────────────────────────────────────────────────────────────────────────
   - name: run-step
     inputs:
@@ -352,9 +387,10 @@ spec:
       command: [bash, -c]
       args:
       - |
+        set -e
         VERSION="{{inputs.parameters.version}}"
-        [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
-        export WORKDIR="/workspace/ml-pipeline/model-store/.workdir/${VERSION}"
+        [ -z "${VERSION}" ] && VERSION="$(date -u +%Y%m%d)_feedback"
+        export WORKDIR="/workspace/ml-pipeline/model-store/captcha_bank/.workdir/${VERSION}"
         mkdir -p "${WORKDIR}"
         cd /workspace/ml-pipeline
         {{inputs.parameters.command}}
@@ -371,6 +407,7 @@ spec:
         readOnly: true
       - name: attempt-logs
         mountPath: /data/context_emotion/attempt_logs
+        readOnly: true
       resources:
         requests:
           cpu: "500m"
@@ -379,50 +416,15 @@ spec:
           cpu: "4"
           memory: "4Gi"
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # Exit Handler: WORKDIR 정리
-  # ──────────────────────────────────────────────────────────────────────────
-  - name: exit-handler
-    steps:
-    - - name: cleanup-workdir
-        template: cleanup-tmpl
-        arguments:
-          parameters:
-          - name: version
-            value: "{{workflow.parameters.version}}"
-
-  - name: cleanup-tmpl
-    inputs:
-      parameters:
-      - name: version
-    container:
-      image: agami-captcha.cloud:8443/agami/agami-captcha-bank:latest
-      imagePullPolicy: Always
-      command: [bash, -c]
-      args:
-      - |
-        VERSION="{{inputs.parameters.version}}"
-        [ -z "${VERSION}" ] && VERSION="v$(date -u +%Y%m%d)_feedback"
-        WORKDIR="/workspace/ml-pipeline/model-store/.workdir/${VERSION}"
-        if [ -d "${WORKDIR}" ]; then
-          rm -rf "${WORKDIR}"
-          echo "정리 완료: ${WORKDIR}"
-        fi
-      volumeMounts:
-      - name: model-store
-        mountPath: /workspace/ml-pipeline/model-store
-      resources:
-        requests:
-          cpu: "100m"
-          memory: "128Mi"
-        limits:
-          cpu: "200m"
-          memory: "256Mi"
-
 ---
 # =============================================================================
-# CronWorkflow — 매일 새벽 2시 자동 트리거 체크
-# (trigger_policy 가 조건 미충족 시 자동 skip)
+# CronWorkflow — 매일 KST 11:00 (UTC 02:00) 자동 실행
+#
+# suspend: false  → 즉시 활성화됨 (kubectl apply 후 별도 조작 불필요)
+# concurrencyPolicy: Forbid → 이전 실행 중이면 skip (중복 방지)
+#
+# 주의: 트리거 조건이 미충족이면 check-trigger 만 실행되고 나머지 skip.
+#        이는 정상 동작이며 workflow 는 Succeeded 로 종료된다.
 # =============================================================================
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
@@ -433,33 +435,22 @@ metadata:
     app: captcha-bank
     component: feedback-mlops
 spec:
-  schedule: "0 2 * * *"        # 매일 02:00 UTC
-  timezone: "Asia/Seoul"       # KST 기준 11:00
-  concurrencyPolicy: Forbid    # 이전 실행 중이면 skip
+  schedule: "0 2 * * *"        # UTC 02:00 = KST 11:00
+  timezone: "Asia/Seoul"
+  concurrencyPolicy: Forbid
+  suspend: false                # 즉시 활성화
   startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+
   workflowSpec:
-    serviceAccountName: captcha-bank-workflow-sa
-    entrypoint: feedback-dag
+    workflowTemplateRef:
+      name: captcha-bank-feedback-pipeline
     arguments:
       parameters:
       - name: version
         value: ""
       - name: force
         value: "false"
-      - name: since-days
-        value: "30"
       - name: new-problems-path
         value: ""
-    # WorkflowTemplate 참조 (entrypoint 오버라이드)
-    workflowTemplateRef:
-      name: captcha-bank-feedback-pipeline
-    volumes:
-    - name: model-store
-      persistentVolumeClaim:
-        claimName: captcha-bank-model-store-pvc
-    - name: data
-      persistentVolumeClaim:
-        claimName: captcha-bank-data-pvc
-    - name: attempt-logs
-      persistentVolumeClaim:
-        claimName: captcha-bank-attempt-logs-pvc

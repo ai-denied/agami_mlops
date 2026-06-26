@@ -136,13 +136,33 @@ def aggregate(records: list[dict]) -> pd.DataFrame:
 
 # ── 메인 ─────────────────────────────────────────────────────────────────────
 
+def _promoted_at_from_metadata(model_dir: Path) -> datetime | None:
+    """current/metadata.json 에서 promoted_at 타임스탬프를 읽어 반환한다."""
+    meta = model_dir / "metadata.json"
+    if not meta.exists():
+        return None
+    try:
+        import json as _json
+        data = _json.loads(meta.read_text())
+        ts = data.get("promoted_at") or data.get("trained_at")
+        if ts:
+            dt = datetime.fromisoformat(ts)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, KeyError, OSError):
+        pass
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="attempt log 집계")
     ap.add_argument("--log-dir",    type=Path, default=_DEFAULT_LOG_DIR)
+    ap.add_argument("--model-dir",  type=Path, default=None,
+                    help="current/ 디렉토리. promoted_at을 읽어 자동으로 --since 설정 "
+                         "(--since / --since-days 보다 우선 적용)")
     ap.add_argument("--since-days", type=int,  default=30,
-                    help="집계 기간 (일). 기본 30일")
+                    help="집계 기간 (일). 기본 30일. --model-dir / --since 미지정 시 사용")
     ap.add_argument("--since",      type=str,  default=None,
-                    help="ISO 8601 날짜 (YYYY-MM-DD). --since-days 보다 우선")
+                    help="ISO 8601 날짜/시각. --since-days 보다 우선. --model-dir 보다는 후순위")
     ap.add_argument("--output",     type=Path, required=True,
                     help="집계 결과 CSV 출력 경로")
     args = ap.parse_args(argv)
@@ -154,13 +174,28 @@ def main(argv: list[str] | None = None) -> int:
     print("  AGGREGATE ATTEMPT LOGS")
     print("═" * _W)
 
-    if args.since:
-        since_dt = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
+    # ── since 기준 결정 (우선순위: --model-dir > --since > --since-days) ──────
+    since_source = ""
+    if args.model_dir:
+        promoted = _promoted_at_from_metadata(args.model_dir)
+        if promoted:
+            since_dt = promoted
+            since_source = f"promoted_at from metadata ({args.model_dir})"
+        else:
+            since_dt = datetime.now(timezone.utc) - timedelta(days=args.since_days)
+            since_source = f"--since-days {args.since_days} (promoted_at 미발견)"
+    elif args.since:
+        raw = args.since
+        since_dt = datetime.fromisoformat(raw)
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+        since_source = f"--since {raw}"
     else:
         since_dt = datetime.now(timezone.utc) - timedelta(days=args.since_days)
+        since_source = f"--since-days {args.since_days}"
 
     print(f"  로그 디렉토리: {args.log_dir}")
-    print(f"  집계 기준:     {since_dt.date()} 이후")
+    print(f"  집계 기준:     {since_dt.isoformat()} ({since_source})")
 
     records = load_records(args.log_dir, since_dt)
     print(f"  로드된 attempt: {len(records):,}건")

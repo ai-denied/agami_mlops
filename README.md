@@ -348,6 +348,116 @@ curl -s -X POST http://localhost:8083/context-emotion/attempt \
 
 ---
 
+## Feedback MLOps 완전 자동 모드
+
+운영 중 사람 개입 없이 attempt_logs → 새 current pool 자동 갱신.
+최초 문제은행 생성 단계(build_review_queue + human_review_server)를 제외하면
+이후 운영은 전부 자동화된다.
+
+### 트리거 조건 (4개 게이트 모두 통과 시 파이프라인 실행)
+
+| 게이트 | 조건 | 설정 파일 |
+|--------|------|-----------|
+| G1 신규 attempt 건수 | ≥ 1,000건 (마지막 승격 이후) | `feedback_trigger_policy.yaml` |
+| G2 문제별 평균 attempt | ≥ 30건/문제 | `feedback_trigger_policy.yaml` |
+| G3 경과일 | ≥ 7일 | `feedback_trigger_policy.yaml` |
+| G4 bad problem 비율 | ≥ 10% (quality_scores 존재 시) | `feedback_trigger_policy.yaml` |
+
+### CronWorkflow 상태 확인
+
+```bash
+# 현재 CronWorkflow 상태 (suspend 여부 확인)
+kubectl get cronworkflow captcha-bank-feedback-cron -n agami -o jsonpath='{.spec.suspend}'
+# → false 이어야 자동 실행됨
+
+# 다음 실행 예정 시각
+kubectl get cronworkflow captcha-bank-feedback-cron -n agami
+
+# 최근 실행 이력 (7개 보관)
+argo list -n agami --prefix captcha-bank-feedback-cron
+```
+
+### 수동 즉시 실행
+
+```bash
+# 트리거 조건 확인 후 실행 (조건 미충족 시 check-trigger 만 실행, 나머지 skip)
+argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
+  -n agami --watch
+
+# 조건 무시 강제 실행
+argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
+  -p force=true -n agami --watch
+
+# 신규 검수 완료 문제 포함
+argo submit --from workflowtemplate/captcha-bank-feedback-pipeline \
+  -p force=true \
+  -p new-problems-path=/data/new_reviewed_problems.csv \
+  -n agami --watch
+```
+
+### 아티팩트 확인
+
+파이프라인 실행 후 다음 위치에 아티팩트가 보존된다.
+
+```bash
+MODEL_STORE=/path/to/model-store/captcha_bank
+VERSION=20260701_feedback   # 실제 버전으로 교체
+
+# 트리거 결정 내역
+cat ${MODEL_STORE}/.workdir/${VERSION}/trigger_decision.json
+
+# attempt 집계 결과 (마지막 승격 이후)
+cat ${MODEL_STORE}/.workdir/${VERSION}/aggregated_stats.csv | head
+
+# 품질 레이블 분포
+python3 -c "
+import pandas as pd
+df = pd.read_csv('${MODEL_STORE}/.workdir/${VERSION}/quality_scores.csv')
+print(df['quality_label'].value_counts())
+print(df['status'].value_counts())
+"
+
+# 승격 게이트 결과
+cat ${MODEL_STORE}/candidates/${VERSION}/promotion_decision.json
+
+# 현재 배포된 버전
+python3 -c "
+import json
+print(json.loads(open('${MODEL_STORE}/current/metadata.json').read())['version'])
+"
+```
+
+### 자동 reload 확인 (Serving API)
+
+promote 완료 후 5분 이내에 Serving API가 새 pool을 자동 reload한다.
+
+```bash
+# 현재 로드된 풀 버전 확인
+curl -s http://context-emotion-captcha-api:8083/health | python3 -m json.tool
+# → version 필드가 새 버전으로 바뀌어야 함
+
+# 실시간 로그 감시 (reload 확인)
+kubectl logs -n agami -l app=context-emotion-captcha-api -f | grep "풀 갱신"
+```
+
+### compare gate 실패 시 동작
+
+```
+compare-candidate → exit 1 (gate 실패)
+promote-model     → Skipped (Argo DAG: 이전 태스크 실패 시 downstream skip)
+smoke-test        → Skipped
+current/          → 변경 없음 (기존 모델 유지)
+```
+
+promotion_decision.json 에서 실패 원인을 확인할 수 있다.
+
+```bash
+# 어떤 게이트가 실패했는지 확인
+cat ${MODEL_STORE}/candidates/${VERSION}/promotion_decision.json | python3 -m json.tool
+```
+
+---
+
 ## 빠른 시작
 
 ```bash

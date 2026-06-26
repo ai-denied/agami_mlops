@@ -226,56 +226,91 @@ def evaluate(
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="feedback MLOps 트리거 평가")
-    ap.add_argument("--log-dir",     type=Path, default=_DEFAULT_LOG_DIR)
-    ap.add_argument("--model-dir",   type=Path, default=_DEFAULT_MODEL_DIR,
+    ap.add_argument("--log-dir",      type=Path, default=_DEFAULT_LOG_DIR)
+    ap.add_argument("--model-dir",    type=Path, default=_DEFAULT_MODEL_DIR,
                     help="current/ 디렉토리 (metadata.json 읽기)")
-    ap.add_argument("--quality-csv", type=Path, default=None,
+    ap.add_argument("--quality-csv",  type=Path, default=None,
                     help="score_problem_quality 출력 CSV (선택)")
-    ap.add_argument("--policy",      type=Path, default=_DEFAULT_POLICY)
-    ap.add_argument("--output",      type=Path, default=Path("/tmp/should_run.txt"),
+    ap.add_argument("--policy",       type=Path, default=_DEFAULT_POLICY)
+    ap.add_argument("--output",       type=Path, default=Path("/tmp/should_run.txt"),
                     help="'true'/'false' 기록 (Argo output parameter 용)")
+    ap.add_argument("--output-json",  type=Path, default=None,
+                    help="trigger_decision.json 저장 경로 (PVC 아티팩트 보존용)")
     ap.add_argument("--force", action="store_true",
                     help="모든 게이트를 무시하고 강제 트리거")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    print()
-    print("═" * _W)
-    print("  FEEDBACK TRIGGER POLICY CHECK")
-    print("═" * _W)
+    # ── should_run.txt 는 반드시 기록되어야 Argo가 output parameter를 읽을 수 있다.
+    # 예외 발생 시에도 "false"로 기록되도록 try/finally 사용.
+    decision = "false"
+    gates: list[Gate] = []
 
-    policy = _load_policy(args.policy)
+    try:
+        print()
+        print("═" * _W)
+        print("  FEEDBACK TRIGGER POLICY CHECK")
+        print("═" * _W)
 
-    if args.force:
-        print("  --force: 모든 게이트 건너뜀 → 트리거")
-        args.output.write_text("true")
-        return 0
+        policy = _load_policy(args.policy)
 
-    should_run, gates = evaluate(
-        log_dir=args.log_dir,
-        model_dir=args.model_dir,
-        quality_csv=args.quality_csv,
-        policy=policy,
-    )
+        if args.force:
+            print("  --force: 모든 게이트 건너뜀 → 트리거")
+            decision = "true"
+        else:
+            should_run, gates = evaluate(
+                log_dir=args.log_dir,
+                model_dir=args.model_dir,
+                quality_csv=args.quality_csv,
+                policy=policy,
+            )
+            decision = "true" if should_run else "false"
 
-    print()
-    for g in gates:
-        print(repr(g))
-        if g.note:
-            print(f"        {g.note}")
+            print()
+            for g in gates:
+                print(repr(g))
+                if g.note:
+                    print(f"        {g.note}")
 
-    decision = "true" if should_run else "false"
-    print()
-    print(f"  {'─' * 56}")
-    print(f"  TRIGGER DECISION: {decision.upper()}")
-    print("═" * _W)
-    print()
+        print()
+        print(f"  {'─' * 56}")
+        print(f"  TRIGGER DECISION: {decision.upper()}")
+        print("═" * _W)
+        print()
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(decision)
+    except Exception as e:
+        logger.error("트리거 평가 중 예외 — fail-safe로 false 기록: %s", e)
+        decision = "false"
 
-    return 0 if should_run else 1
+    finally:
+        # ── Argo output parameter 파일 (항상 기록) ───────────────────────────
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(decision)
+
+        # ── PVC 아티팩트: trigger_decision.json ──────────────────────────────
+        if args.output_json:
+            import json as _json
+            now_iso = datetime.now(timezone.utc).isoformat()
+            record = {
+                "timestamp":  now_iso,
+                "should_run": decision == "true",
+                "force":      args.force,
+                "gates": [
+                    {
+                        "name":      g.name,
+                        "value":     str(g.value),
+                        "threshold": str(g.threshold),
+                        "passed":    g.passed,
+                        "note":      g.note,
+                    }
+                    for g in gates
+                ],
+            }
+            args.output_json.parent.mkdir(parents=True, exist_ok=True)
+            args.output_json.write_text(_json.dumps(record, ensure_ascii=False, indent=2))
+
+    return 0 if decision == "true" else 1
 
 
 if __name__ == "__main__":

@@ -160,15 +160,98 @@ def compare(
     return all_pass
 
 
+def compare_and_record(
+    version: str,
+    policy_path: Path,
+    candidates_dir: Path = _CANDIDATES_DIR,
+    current_dir: Path = _CURRENT_DIR,
+    output_json: Path | None = None,
+) -> bool:
+    """compare() 를 실행하고 결과를 promotion_decision.json에 저장한다."""
+    import traceback as _tb
+
+    gate_details: list[dict] = []
+    passed = False
+
+    try:
+        # compare() 내부의 results를 외부에서 읽기 어려우므로,
+        # 직접 evaluation_result.json을 로드해 gate 결과를 재수집한다.
+        candidate_eval = _load_json(candidates_dir / version / "evaluation_result.json")
+        current_eval   = _load_json(current_dir / "evaluation_result.json")
+        policy         = _load_policy(policy_path)
+        gates          = policy.get("gates", {})
+
+        # ─ gate 상세 수집 (compare() 와 동일 로직 미러) ─
+        if candidate_eval:
+            from context_emotion.captcha_bank.choice_generation import EMOTIONS
+            apr      = candidate_eval.get("attacker_pass_rate") or 1.0
+            rr       = candidate_eval.get("robust_rate") or 0.0
+            cppr     = candidate_eval.get("choice_policy_pass_rate") or 1.0
+            amb      = candidate_eval.get("ambiguous_rate") or 0.0
+            pool_sz  = candidate_eval.get("pool_size") or 0
+            dist     = candidate_eval.get("label_distribution") or {}
+            zero_cls = [e for e in EMOTIONS if (dist.get(e) or 0) == 0]
+
+            _gates = [
+                ("min_pool_size",               pool_sz >= gates.get("min_pool_size", 200),           pool_sz),
+                ("max_attacker_pass_rate",       apr     <= gates.get("max_attacker_pass_rate", 0.35), round(apr, 4)),
+                ("min_robust_rate",              rr      >= gates.get("min_robust_rate", 0.65),        round(rr, 4)),
+                ("max_choice_policy_pass_rate",  cppr    <= gates.get("max_choice_policy_pass_rate", 0.10), round(cppr, 4)),
+                ("max_ambiguous_rate",           amb     <= gates.get("max_ambiguous_rate", 0.20),     round(amb, 4)),
+                ("max_zero_class_emotions",      len(zero_cls) <= gates.get("max_zero_class_emotions", 2), len(zero_cls)),
+            ]
+            if current_eval and current_eval.get("attacker_pass_rate") is not None:
+                c_apr    = float(current_eval["attacker_pass_rate"])
+                increase = apr - c_apr
+                _gates.append(("max_pass_rate_increase_vs_current",
+                                increase <= gates.get("max_pass_rate_increase_vs_current", 0.05),
+                                round(increase, 4)))
+
+            gate_details = [{"name": n, "passed": p, "value": v} for n, p, v in _gates]
+
+        passed = compare(version, policy_path, candidates_dir, current_dir)
+
+    except Exception as e:
+        gate_details = [{"name": "error", "passed": False, "value": str(e)}]
+        passed = False
+        print(f"  [오류] compare_and_record: {e}", file=sys.stderr)
+
+    # ── promotion_decision.json 저장 ─────────────────────────────────────────
+    if output_json:
+        import json as _json
+        from datetime import datetime, timezone
+        record = {
+            "timestamp":  datetime.now(timezone.utc).isoformat(),
+            "version":    version,
+            "decision":   "promote" if passed else "reject",
+            "gates":      gate_details,
+        }
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        output_json.write_text(_json.dumps(record, ensure_ascii=False, indent=2))
+
+        # candidates/{version}/ 에도 복사
+        candidate_copy = candidates_dir / version / "promotion_decision.json"
+        if candidate_copy.parent.exists():
+            candidate_copy.write_text(_json.dumps(record, ensure_ascii=False, indent=2))
+
+    return passed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="CAPTCHA bank 후보 vs. 현재 비교")
     ap.add_argument("--version",  required=True)
     ap.add_argument("--policy",   type=Path, default=_DEFAULT_POLICY)
     ap.add_argument("--candidates-dir", type=Path, default=_CANDIDATES_DIR)
     ap.add_argument("--current-dir",    type=Path, default=_CURRENT_DIR)
+    ap.add_argument("--output-json",    type=Path, default=None,
+                    help="promotion_decision.json 저장 경로 (PVC 아티팩트 보존용)")
     args = ap.parse_args()
 
-    ok = compare(args.version, args.policy, args.candidates_dir, args.current_dir)
+    ok = compare_and_record(
+        args.version, args.policy,
+        args.candidates_dir, args.current_dir,
+        args.output_json,
+    )
     sys.exit(0 if ok else 1)
 
 
