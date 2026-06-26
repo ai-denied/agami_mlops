@@ -1,15 +1,19 @@
-"""Attacker-proxy resistance evaluation - INTERFACE ONLY, not implemented.
+"""Attacker-proxy resistance evaluation.
 
-There is currently no chosen attacker proxy model and no dedicated
-adversarial eval pool (config/promotion_policy.yaml attacker_proxy_gate is
-`required: false` for exactly this reason). This module defines the
-contract evaluate_candidate.py / compare_candidate.py call against, so
-that whoever picks the proxy model later only has to fill in
-`_run_attacker_proxy()` - nothing else changes.
+VLM 공격 인프라는 context_emotion.captcha_bank 에 구현되어 있다:
+  - captcha_bank/common.py          : build_attack_prompt(), parse_model_json()
+  - captcha_bank/models.json        : 공격 VLM 목록 (Qwen2.5-VL-3B, SmolVLM2-2.2B 등)
+  - captcha_bank/build_review_queue.py : 공격 결과 JSONL → 검수 큐 변환
 
-DO NOT fabricate a solve rate here. If the proxy isn't configured, return
-status='not_configured' and let promotion_gate.py treat that gate as
-non-blocking (see config/promotion_policy.yaml).
+_run_attacker_proxy()를 구현하려면:
+  1. captcha_bank/models.json 의 VLM 중 하나를 proxy_model_path로 지정
+  2. eval_pool_path 의 문항 CSV 에서 이미지를 로드하고
+     captcha_bank/common.build_attack_prompt()로 프롬프트를 생성
+  3. VLM 추론을 돌려 captcha_bank/common.parse_model_json()으로 파싱
+  4. 정답(provisional_emotion)과 비교해 solve_rate / error breakdown 계산
+
+config/promotion_policy.yaml 의 attacker_proxy_gate 가 required: false 인
+동안은 not_configured 반환으로 충분하다. 구현 완료 후 required: true 로 전환.
 """
 from typing import Optional
 
@@ -30,22 +34,23 @@ def evaluate_attacker_proxy(
             "todo": (
                 "config/promotion_policy.yaml attacker_proxy_gate에 "
                 "proxy_model_version / eval_pool_path를 채우고, "
-                "_run_attacker_proxy()를 실제 어태커 모델 추론으로 구현할 것"
+                "_run_attacker_proxy()를 captcha_bank.common의 "
+                "build_attack_prompt/parse_model_json으로 구현할 것"
             ),
         }
     return _run_attacker_proxy(candidate_model_path, proxy_model_path, eval_pool_path)
 
 
 def _run_attacker_proxy(candidate_model_path: str, proxy_model_path: str, eval_pool_path: str) -> dict:
-    """TODO: 어태커 프록시 모델/평가 풀이 확정되면 여기를 구현.
+    """TODO: 구현 필요.
 
-    예상되는 작업:
-      1. eval_pool_path의 운영 평가 풀(사람도 어태커도 둘 다 거쳐 가는
-         별도 문항 세트 - 학습셋과는 분리, MLOPS_OPERATION_DESIGN.md 참고)을 로드
-      2. candidate 모델로 각 문항의 "정답"(provisional_emotion)을 만들고,
-         어태커 프록시 모델이 같은 문항에서 그 정답을 맞히는 비율을 계산
-      3. 오답 유형(어떤 클래스를 어떤 클래스로 혼동하는지)을 집계
-      4. {"status": "available", "attacker_solve_rate": ..., ...} 반환
+    구현 단계:
+      1. eval_pool_path CSV 로드 (captcha_bank.common.read_csv)
+      2. 각 이미지에 captcha_bank.common.build_attack_prompt() 적용
+      3. captcha_bank/models.json 에서 proxy_model_path에 해당하는 VLM 로드
+      4. VLM 추론 → captcha_bank.common.parse_model_json() 파싱
+      5. provisional_emotion 과 비교해 solve_rate / error breakdown 집계
+      6. {"status": "available", "attacker_solve_rate": ..., ...} 반환
     """
     raise NotImplementedError(
         "attacker proxy 모델/평가 풀이 아직 확정되지 않았습니다. "

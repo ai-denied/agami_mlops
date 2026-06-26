@@ -1,0 +1,74 @@
+{
+  "challenge_size": 3,
+  "pass_score": 2.5,
+  "primary_answer_points": 1.0,
+  "auxiliary_answer_points": 0.5,
+  "wrong_answer_points": 0.0,
+  "pools": {
+    "production_all": {
+      "file": "/workspace/data/agami_situation_modeling/final_dataset/agami_captcha_production_2122_weighted_choices.csv",
+      "rows": 2122,
+      "purpose": "전체 운영 문제은행"
+    },
+    "standard": {
+      "file": "agami_captcha_final_standard_security_choices.csv",
+      "rows": 1618,
+      "purpose": "일반 요청"
+    },
+    "high": {
+      "file": "agami_captcha_final_high_security_choices.csv",
+      "rows": 1021,
+      "purpose": "의심 요청 또는 보안 강화"
+    },
+    "hardened": {
+      "file": "agami_captcha_deploy_468_hardened_choices.csv",
+      "rows": 468,
+      "purpose": "데모와 고위험 요청 기본값"
+    },
+    "strict": {
+      "file": "agami_captcha_final_hardened_all_attack_zero_choices.csv",
+      "rows": 232,
+      "purpose": "최강 보안 실험/비교"
+    }
+  },
+  "routing_policy": {
+    "normal": {
+      "pool": "production_all",
+      "description": "일반 사용자는 전체 2,122개에서 출제해 반복 노출을 줄인다."
+    },
+    "suspicious": {
+      "pool": "high",
+      "description": "의심 사용자는 high-security 1,021개에서 출제한다."
+    },
+    "high_risk": {
+      "pool": "hardened",
+      "description": "고위험 요청과 최종 데모는 468개 hardened pool에서 출제한다."
+    },
+    "strict_demo": {
+      "pool": "strict",
+      "description": "공격모델 모두 실패 조건을 강조할 때만 232개 strict pool을 사용한다."
+    }
+  },
+  "anti_crawling": [
+    "같은 사용자/IP/세션에 같은 sample_id 재출제 제한",
+    "이미지 URL 일회성 서명 처리",
+    "짧은 만료 시간 적용",
+    "과도한 요청은 high_risk 또는 strict_demo 정책으로 승격",
+    "새 데이터 추가 후 같은 검수/공격평가 파이프라인으로 pool 확장"
+  ],
+  "weighted_selection": {
+    "enabled": true,
+    "file": "/workspace/data/agami_situation_modeling/final_dataset/agami_captcha_production_2122_weighted_choices.csv",
+    "weight_column": "selection_weight",
+    "ranking_column": "security_weight_score",
+    "note": "사용자 채점 점수가 아니라 출제 확률 가중치다.",
+    "weights": {
+      "C": 1.0,
+      "B": 2.5,
+      "A": 5.0,
+      "S": 8.0,
+      "hardened_468_bonus": 4.0,
+      "strict_232_bonus": 4.0
+    }
+  }
+}
