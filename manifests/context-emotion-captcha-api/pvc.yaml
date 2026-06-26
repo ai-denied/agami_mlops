@@ -1,0 +1,27 @@
+# =============================================================================
+# context-emotion-captcha-api PVC
+#
+# captcha-bank-model-store-pvc, captcha-bank-data-pvc 는 Argo Workflows 파이프라인과
+# 공유 PVC 이므로 argocd/apps/captcha-bank-workflows.yaml 에서 별도 관리한다.
+# 여기서는 Serving API 전용 attempt-logs PVC 만 선언한다.
+# =============================================================================
+
+---
+# attempt log 전용 PVC
+# JSONL 1행 ≈ 300B, 하루 100만 attempt ≈ 300MB → 5Gi 는 약 16일분
+# ReadWriteOnce: 단일 Pod 쓰기 (replica > 1 이면 ReadWriteMany 로 변경)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: captcha-bank-attempt-logs-pvc
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: attempt-logs
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: "local-path"

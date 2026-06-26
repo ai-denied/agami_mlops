@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: context-emotion-captcha-api
+  namespace: argocd
+  labels:
+    app: context-emotion-captcha-api
+    team: agami
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ai-denied/agami_mlops.git
+    targetRevision: main
+    path: manifests/context-emotion-captcha-api
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agami
+
+  syncPolicy:
+    automated:
+      prune: true       # 삭제된 리소스 자동 제거
+      selfHeal: true    # 드리프트 발생 시 자동 복원
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground   # 자식 리소스부터 순서대로 삭제
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
