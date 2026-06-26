@@ -1,5 +1,4 @@
-# captcha_bank MLOps 파이프라인 의존성
-# train_attack_model, run_attack_eval, package_model, compare_candidate, promote_model, smoke_test
+# captcha_bank MLOps 파이프라인 + Serving API 의존성
 
 # ML
 scikit-learn>=1.4,<2.0
@@ -11,6 +10,11 @@ numpy>=1.24
 
 # YAML (promotion_policy.yaml 파싱)
 PyYAML>=6.0
+
+# Serving API (FastAPI + uvicorn)
+fastapi>=0.111,<1.0
+uvicorn[standard]>=0.29
+pydantic>=2.6
 
 # 기타
 tqdm>=4.65

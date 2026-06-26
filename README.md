@@ -272,6 +272,82 @@ docker build -f ml-pipeline/Dockerfile.flashlight -t agami/ml-pipeline-flashligh
 
 ---
 
+## Emotion CAPTCHA Serving 흐름
+
+감정 CAPTCHA는 **풀 생성 → 서빙 → 풀이 → 피드백** 의 순환 구조로 운영된다.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│             Emotion CAPTCHA 전체 운영 루프                      │
+│                                                                 │
+│  ① 풀 생성 (offline)                                            │
+│     VLM 공격 (build_review_queue.py)                            │
+│       → 인간 검수 (human_review_server :8765)                   │
+│       → 풀 내보내기 (export_captcha_pool.py)                    │
+│       → captcha_pool.csv 생성                                   │
+│                                                                 │
+│  ② MLOps 파이프라인 (Argo Workflows / run_pipeline.py)          │
+│     validate → train → eval → choice-report                     │
+│       → package → compare → promote → smoke-test               │
+│     model-store/captcha_bank/current/ 갱신                      │
+│                                                                 │
+│  ③ Serving API (context-emotion-captcha-api :8083)              │
+│     GET  /health                    풀 로드 상태 확인           │
+│     POST /context-emotion/challenge current 풀에서 문제 출제    │
+│     POST /context-emotion/attempt   사용자 풀이 제출 + 로깅     │
+│                                                                 │
+│  ④ 사용자 풀이                                                   │
+│     → image_url 이미지 확인 → 감정 레이블 선택 → attempt 제출   │
+│     ← is_correct, retry_allowed 반환 (정답·점수 미노출)         │
+│                                                                 │
+│  ⑤ attempt log 축적                                             │
+│     /data/context_emotion/attempt_logs/attempts_YYYYMMDD.jsonl  │
+│     저장 필드: challenge_id, sample_id, selected_label,         │
+│               is_correct, points, solve_time_ms, pool_version   │
+│     미저장:   final_emotion(정답), raw IP, raw user-agent       │
+│                                                                 │
+│  ⑥ feedback MLOps 입력 (TODO)                                   │
+│     attempt_log 분석 → 취약 문항 식별                           │
+│       → 인간 검수 재요청 or 풀에서 제거                         │
+│       → 새 candidate pool 생성 → 평가/승격 → current 교체      │
+│                                                                 │
+│  (③ → ④ → ⑤ → ⑥ → ② 반복)                                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Serving API 빠른 테스트
+
+```bash
+cd ml-pipeline
+pip install -r requirements-captcha-bank.txt
+
+# current/ 풀이 있을 때 (model-store/captcha_bank/current/captcha_pool.csv)
+CAPTCHA_POOL_DIR=model-store/captcha_bank/current \
+ATTEMPT_LOG_DIR=/tmp/attempt_logs \
+uvicorn context_emotion.serving.app:app --port 8083
+
+# 헬스체크
+curl http://localhost:8083/health
+
+# 문제 출제
+curl -s -X POST http://localhost:8083/context-emotion/challenge \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "test-session-001"}' | python3 -m json.tool
+
+# 풀이 제출 (challenge_id는 위 응답에서 복사)
+curl -s -X POST http://localhost:8083/context-emotion/attempt \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "test-session-001",
+    "challenge_id": "<위에서받은ID>",
+    "selected_label": "happiness",
+    "solve_time_ms": 3200,
+    "retry_count": 0
+  }' | python3 -m json.tool
+```
+
+---
+
 ## 빠른 시작
 
 ```bash
@@ -304,4 +380,6 @@ curl -X POST http://localhost:8080/api/v1/predict \
 | K8s 배포 절차 | [`manifests/DEPLOY.md`](manifests/DEPLOY.md) |
 | Argo Workflows 설정 | [`ml-pipeline/k8s/argo-workflows/README.md`](ml-pipeline/k8s/argo-workflows/README.md) |
 | Context Emotion MLOps 설계 | [`ml-pipeline/context_emotion/MLOPS_OPERATION_DESIGN.md`](ml-pipeline/context_emotion/MLOPS_OPERATION_DESIGN.md) |
+| captcha_bank MLOps 한 장 요약 | [`ml-pipeline/context_emotion/docs/captcha_bank_mlops_overview.md`](ml-pipeline/context_emotion/docs/captcha_bank_mlops_overview.md) |
+| captcha_bank 운영 가이드 | [`ml-pipeline/context_emotion/captcha_bank/CAPTCHA_BANK_OPS.md`](ml-pipeline/context_emotion/captcha_bank/CAPTCHA_BANK_OPS.md) |
 | 운영 회고록 | [`retrospectives/`](retrospectives/) |

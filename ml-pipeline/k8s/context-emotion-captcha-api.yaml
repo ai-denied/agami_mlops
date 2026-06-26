@@ -1,0 +1,206 @@
+# =============================================================================
+# context-emotion-captcha-api.yaml
+#
+# Emotion CAPTCHA Serving API (port 8083) — Kubernetes 배포 정의
+#
+# 포함 리소스:
+#   1. Deployment  — captcha-api 컨테이너 (1 replica)
+#   2. Service     — ClusterIP (내부 서비스 메시)
+#
+# 볼륨:
+#   captcha-bank-model-store-pvc: /model-store/context_emotion/current (ReadOnly)
+#                                  subPath: captcha_bank/current
+#   captcha-bank-data-pvc:        /data/context_emotion (ReadOnly, 이미지 서빙)
+#   captcha-bank-attempt-logs-pvc:/data/context_emotion/attempt_logs (ReadWrite)
+#
+# 적용:
+#   kubectl apply -f k8s/context-emotion-captcha-api.yaml -n agami
+#
+# 포트 컨벤션:
+#   8080: flashlight       (마우스 GRU 봇 탐지)
+#   8081: facial-recognition (얼굴 생체 인식)
+#   8082: context-emotion  (EfficientNet-B0 감정 분류)
+#   8083: context-emotion-captcha-api  ← 이 파일
+# =============================================================================
+
+---
+# =============================================================================
+# [1] Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context-emotion-captcha-api
+  namespace: agami
+  labels:
+    app: context-emotion-captcha-api
+    component: serving
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: context-emotion-captcha-api
+  template:
+    metadata:
+      labels:
+        app: context-emotion-captcha-api
+        component: serving
+    spec:
+      # ── 이미지 풀 시크릿 ────────────────────────────────────────────────
+      imagePullSecrets:
+      - name: harbor-regcred   # harbor에서 이미지 풀 시 필요
+
+      containers:
+      - name: captcha-api
+        image: agami-captcha.cloud:8443/agami/agami-captcha-bank:latest
+        imagePullPolicy: Always
+
+        command:
+        - uvicorn
+        - context_emotion.serving.app:app
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "8083"
+        - --workers
+        - "1"   # 단일 워커: _sessions dict가 in-process이므로 멀티워커 비권장
+
+        ports:
+        - containerPort: 8083
+          name: http
+
+        env:
+        - name: PYTHONPATH
+          value: "/workspace/ml-pipeline"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+
+        # ── 경로 설정 ──────────────────────────────────────────────────────
+        - name: CAPTCHA_POOL_DIR
+          value: "/model-store/context_emotion/current"
+        - name: ATTEMPT_LOG_DIR
+          value: "/data/context_emotion/attempt_logs"
+        - name: IMAGE_BASE_URL
+          value: "/static/images"
+        - name: IMAGE_BASE_DIR
+          value: "/data/context_emotion"
+
+        # ── 동작 설정 ──────────────────────────────────────────────────────
+        - name: POOL_RELOAD_INTERVAL_SEC
+          value: "300"         # 5분마다 pool 재로드
+        - name: CHALLENGE_TTL_SEC
+          value: "300"         # 문제 만료 시간 5분
+        - name: MAX_CHALLENGE_RETRIES
+          value: "2"           # 오답 시 최대 재시도 횟수
+        - name: MAX_CHALLENGES_PER_SESSION
+          value: "10"
+
+        volumeMounts:
+        # model-store PVC → /model-store/context_emotion/current (읽기 전용)
+        # subPath: captcha_bank/current — candidates/ archive/ 는 마운트하지 않음
+        - name: model-store
+          mountPath: /model-store/context_emotion/current
+          subPath: captcha_bank/current
+          readOnly: true
+
+        # data PVC → /data/context_emotion (이미지 정적 서빙, 읽기 전용)
+        - name: data
+          mountPath: /data/context_emotion
+          readOnly: true
+
+        # attempt logs PVC → /data/context_emotion/attempt_logs (쓰기 필요)
+        - name: attempt-logs
+          mountPath: /data/context_emotion/attempt_logs
+
+        # ── 헬스체크 ──────────────────────────────────────────────────────
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"   # captcha_pool.csv 인메모리 캐시 포함
+
+      volumes:
+      # model-store PVC (captcha_bank 파이프라인과 공유)
+      # ReadWriteMany가 권장 (파이프라인 promote 중에도 serving이 읽기 가능)
+      - name: model-store
+        persistentVolumeClaim:
+          claimName: captcha-bank-model-store-pvc
+          readOnly: true
+
+      # data PVC (이미지 원본 데이터)
+      - name: data
+        persistentVolumeClaim:
+          claimName: captcha-bank-data-pvc
+          readOnly: true
+
+      # attempt logs 전용 PVC (별도 분리 — 데이터 PVC 오염 방지)
+      - name: attempt-logs
+        persistentVolumeClaim:
+          claimName: captcha-bank-attempt-logs-pvc
+
+---
+# =============================================================================
+# [2] Service — ClusterIP (내부 서비스 메시 연결)
+#
+# 외부 노출이 필요한 경우 Ingress 또는 LoadBalancer 로 별도 설정한다.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: context-emotion-captcha-api
+  namespace: agami
+  labels:
+    app: context-emotion-captcha-api
+    component: serving
+spec:
+  type: ClusterIP
+  selector:
+    app: context-emotion-captcha-api
+  ports:
+  - name: http
+    port: 8083
+    targetPort: 8083
+    protocol: TCP
+
+---
+# =============================================================================
+# [3] attempt-logs PVC (Deployment와 함께 적용)
+#
+# attempt log는 model-store 및 data PVC와 분리하여 독립적으로 관리한다.
+# 로그 파일(attempts_YYYYMMDD.jsonl)은 feedback MLOps 파이프라인의 입력으로 쓰인다.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: captcha-bank-attempt-logs-pvc
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: attempt-logs
+spec:
+  accessModes:
+    - ReadWriteOnce   # 단일 워커 Pod만 쓰기 (복수 replica 시 ReadWriteMany로 변경)
+  resources:
+    requests:
+      storage: 5Gi   # JSONL 1행 ≈ 300B, 하루 100만 attempt ≈ 300MB
+  storageClassName: "local-path"
