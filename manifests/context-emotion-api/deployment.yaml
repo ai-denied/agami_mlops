@@ -4,9 +4,9 @@
 # 포트 8083 | FastAPI (uvicorn) | 감정 CAPTCHA 출제·채점 서빙 API
 #
 # 볼륨:
-#   model-store PVC (ReadOnly)   → /model-store/context_emotion/current
+#   model-store PVC (ReadOnly)   → /model-store/context_emotion/current  (subPath)
 #   data PVC (ReadOnly)          → /data/context_emotion  (이미지 정적 서빙)
-#   attempt-logs PVC (ReadWrite) → /data/context_emotion/attempt_logs
+#   attempt-logs PVC (ReadWrite) → /attempt-logs  (data와 별도 경로로 분리)
 #
 # 의존 PVC:
 #   captcha-bank-model-store-pvc  (pvc-captcha-bank.yaml)
@@ -40,12 +40,10 @@ spec:
       initContainers:
       - name: init-dirs
         image: busybox:1.36
-        command: [sh, -c, "mkdir -p /model-store/captcha_bank/current /data/context_emotion/attempt_logs"]
+        command: [sh, -c, "mkdir -p /model-store/captcha_bank/current"]
         volumeMounts:
         - name: model-store
           mountPath: /model-store
-        - name: attempt-logs
-          mountPath: /data/context_emotion/attempt_logs
 
       containers:
       - name: captcha-api
@@ -74,7 +72,7 @@ spec:
         - name: CAPTCHA_POOL_DIR
           value: "/model-store/context_emotion/current"
         - name: ATTEMPT_LOG_DIR
-          value: "/data/context_emotion/attempt_logs"
+          value: "/attempt-logs"
         - name: IMAGE_BASE_URL
           value: "/static/images"
         - name: IMAGE_BASE_DIR
@@ -97,7 +95,7 @@ spec:
           mountPath: /data/context_emotion
           readOnly: true
         - name: attempt-logs
-          mountPath: /data/context_emotion/attempt_logs
+          mountPath: /attempt-logs
 
         livenessProbe:
           httpGet:
