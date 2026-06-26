@@ -1,0 +1,47 @@
+# =============================================================================
+# Dockerfile.captcha-bank
+#
+# 용도  : captcha_bank MLOps 파이프라인 실행용 이미지
+#          (validate → train → eval → choice-report → package → compare → promote → smoke-test)
+# 대상  : Argo Workflows captcha-bank-pipeline.yaml 각 step
+#
+# 포함  : context_emotion/captcha_bank/ 패키지 코드, sklearn 의존성
+# 미포함: data/, model-store/  → 런타임에 PVC로 마운트
+#         VLM 의존성 (torch, transformers)  → VLM 공격 step은 별도 이미지 사용
+#
+# 빌드:
+#   docker build -f ml-pipeline/Dockerfile.captcha-bank \
+#                -t ghcr.io/ai-denied/captcha-bank:latest .
+#
+# 로컬 실행 테스트:
+#   docker run --rm \
+#     -v $(pwd)/ml-pipeline/model-store:/workspace/ml-pipeline/model-store \
+#     -v $(pwd)/data:/data \
+#     ghcr.io/ai-denied/captcha-bank:latest \
+#     python -m context_emotion.captcha_bank.scripts.run_pipeline \
+#       --pool-csv /data/context_emotion/captcha_bank/captcha_pool.csv \
+#       --version  v1_20260701 \
+#       --dry-run
+# =============================================================================
+
+FROM python:3.10-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace/ml-pipeline
+
+# 의존성 먼저 설치
+COPY requirements-captcha-bank.txt ./requirements-captcha-bank.txt
+RUN pip install --no-cache-dir -r requirements-captcha-bank.txt
+
+# context_emotion 패키지 코드 복사
+COPY context_emotion/ ./context_emotion/
+
+ENV PYTHONPATH=/workspace/ml-pipeline
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "-m", "context_emotion.captcha_bank.scripts.run_pipeline", "--help"]

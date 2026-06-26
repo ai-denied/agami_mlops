@@ -1,0 +1,311 @@
+# =============================================================================
+# captcha_bank MLOps 파이프라인 — Argo Workflows
+#
+# 8단계 DAG 파이프라인:
+#   validate-captcha-pool
+#     → train-model
+#       → evaluate-model
+#       → build-choice-policy-report  (parallel with evaluate)
+#         → package-model             (depends on both)
+#           → compare-model
+#             → promote-model
+#               → smoke-test
+#
+# 포함 리소스:
+#   1. WorkflowTemplate  — 재사용 가능한 파이프라인 정의
+#   2. CronWorkflow      — 정기 자동 실행 (매주 화요일 03:00 KST)
+#
+# 적용 방법:
+#   kubectl apply -f captcha-bank-pipeline.yaml -n agami
+#
+# 수동 실행:
+#   argo submit --from workflowtemplate/captcha-bank-pipeline \
+#     -p version=v1_20260701 \
+#     -p pool_csv=/data/context_emotion/captcha_bank/captcha_pool.csv
+#
+# TODO:
+#   - 컨테이너 이미지 레지스트리 경로 확정 (현재: ghcr.io/ai-denied/captcha-bank:latest)
+#   - PVC 이름 확정 (현재: captcha-bank-data-pvc)
+#   - human_review_server 완료 후 pool_csv 자동 경로 설정
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# [1] WorkflowTemplate — 8단계 DAG 파이프라인
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: captcha-bank-pipeline
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: mlops-pipeline
+  annotations:
+    description: "validate → train → eval → choice-report → package → compare → promote → smoke-test"
+    version: "v1"
+spec:
+  serviceAccountName: captcha-bank-workflow-sa
+
+  arguments:
+    parameters:
+    - name: version
+      value: ""            # 필수: v1_20260701 형식
+
+    - name: pool_csv
+      value: "/data/context_emotion/captcha_bank/captcha_pool.csv"
+
+    - name: min_rows
+      value: "200"
+
+    - name: dry_run
+      value: "false"       # "true"이면 promote 단계 skip
+
+    - name: force_promote
+      value: "false"       # "true"이면 compare 실패 시에도 승격 진행
+
+  entrypoint: pipeline-dag
+
+  # 워크플로우 수준 실패 정책
+  onExit: exit-handler
+
+  # ── 볼륨: 모델 스토어 + 데이터 ────────────────────────────────────────────
+  volumes:
+  - name: model-store
+    persistentVolumeClaim:
+      claimName: captcha-bank-model-store-pvc
+  - name: data
+    persistentVolumeClaim:
+      claimName: captcha-bank-data-pvc
+  - name: workdir
+    emptyDir: {}
+
+  templates:
+
+  # ---------------------------------------------------------------------------
+  # 메인 DAG
+  # ---------------------------------------------------------------------------
+  - name: pipeline-dag
+    inputs:
+      parameters:
+      - name: version
+      - name: pool_csv
+      - name: min_rows
+      - name: dry_run
+      - name: force_promote
+    dag:
+      tasks:
+
+      # ── STEP 1: 풀 검증 ───────────────────────────────────────────────────
+      - name: validate-captcha-pool
+        template: run-step
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 1/8  풀 검증"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.scripts.validate_captcha_pool \
+                --pool-csv "{{inputs.parameters.pool_csv}}" \
+                --min-rows {{inputs.parameters.min_rows}}
+
+      # ── STEP 2: 모델 학습 ─────────────────────────────────────────────────
+      - name: train-model
+        template: run-step
+        dependencies: [validate-captcha-pool]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 2/8  모델 학습"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.training.train_attack_model \
+                --pool-csv  "{{inputs.parameters.pool_csv}}" \
+                --output    /workdir/model.joblib \
+                --version   "{{inputs.parameters.version}}"
+
+      # ── STEP 3: 보안 평가 ─────────────────────────────────────────────────
+      - name: evaluate-model
+        template: run-step
+        dependencies: [train-model]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 3/8  보안 평가"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.evaluation.run_attack_eval \
+                --pool-csv "{{inputs.parameters.pool_csv}}" \
+                --model    /workdir/model.joblib \
+                --output   /workdir/evaluation_result.json \
+                --version  "{{inputs.parameters.version}}"
+
+      # ── STEP 4: 선택지 정책 리포트 (STEP 3와 병렬) ───────────────────────
+      - name: build-choice-policy-report
+        template: run-step
+        dependencies: [train-model]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 4/8  선택지 정책 리포트"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.build_choice_policy_report \
+                --input-csv  "{{inputs.parameters.pool_csv}}" \
+                --output-csv /workdir/captcha_pool_with_choices.csv \
+                --output-md  /workdir/choice_policy_report.md \
+              || echo "[WARNING] 선택지 정책 리포트 생성 실패 — 패키징에서 제외"
+
+      # ── STEP 5: 패키징 ────────────────────────────────────────────────────
+      - name: package-model
+        template: run-step
+        dependencies: [evaluate-model, build-choice-policy-report]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 5/8  패키징"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.scripts.package_model \
+                --version      "{{inputs.parameters.version}}" \
+                --model-joblib /workdir/model.joblib \
+                --eval-json    /workdir/evaluation_result.json \
+                --pool-csv     "{{inputs.parameters.pool_csv}}" \
+                $([ -f /workdir/choice_policy_report.md ] && echo "--policy-md /workdir/choice_policy_report.md")
+
+      # ── STEP 6: 후보 비교 ─────────────────────────────────────────────────
+      - name: compare-model
+        template: run-step
+        dependencies: [package-model]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 6/8  후보 비교"
+          - name: command
+            value: |
+              if [ "{{inputs.parameters.force_promote}}" = "true" ]; then
+                echo "[FORCE-PROMOTE] 비교 게이트 건너뜀"
+                exit 0
+              fi
+              python -m context_emotion.captcha_bank.scripts.compare_candidate \
+                --version "{{inputs.parameters.version}}"
+
+      # ── STEP 7: 승격 ─────────────────────────────────────────────────────
+      - name: promote-model
+        template: run-step
+        dependencies: [compare-model]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 7/8  승격"
+          - name: command
+            value: |
+              DRY=""
+              [ "{{inputs.parameters.dry_run}}" = "true" ] && DRY="--dry-run"
+              python -m context_emotion.captcha_bank.scripts.promote_model \
+                --version "{{inputs.parameters.version}}" $DRY
+
+      # ── STEP 8: 스모크 테스트 ─────────────────────────────────────────────
+      - name: smoke-test
+        template: run-step
+        dependencies: [promote-model]
+        arguments:
+          parameters:
+          - name: step_name
+            value: "STEP 8/8  스모크 테스트"
+          - name: command
+            value: |
+              python -m context_emotion.captcha_bank.scripts.smoke_test
+
+  # ---------------------------------------------------------------------------
+  # 공통 step 템플릿: 하나의 bash 명령을 실행
+  # ---------------------------------------------------------------------------
+  - name: run-step
+    inputs:
+      parameters:
+      - name: step_name
+      - name: command
+    metadata:
+      labels:
+        step: "{{inputs.parameters.step_name}}"
+    container:
+      image: ghcr.io/ai-denied/captcha-bank:latest
+      imagePullPolicy: Always
+      command: [bash, -euo, pipefail, -c]
+      args:
+      - |
+        echo "══════════════════════════════════════════════════════════════"
+        echo "  {{inputs.parameters.step_name}}"
+        echo "══════════════════════════════════════════════════════════════"
+        cd /workspace/ml-pipeline
+        PYTHONPATH=/workspace/ml-pipeline {{inputs.parameters.command}}
+      env:
+      - name: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - name: PYTHONUNBUFFERED
+        value: "1"
+      resources:
+        requests:
+          cpu: "1"
+          memory: "2Gi"
+        limits:
+          cpu: "4"
+          memory: "8Gi"
+      volumeMounts:
+      - name: model-store
+        mountPath: /workspace/ml-pipeline/model-store
+      - name: data
+        mountPath: /data
+      - name: workdir
+        mountPath: /workdir
+
+  # ---------------------------------------------------------------------------
+  # 종료 핸들러: 성공/실패 시 요약 출력
+  # ---------------------------------------------------------------------------
+  - name: exit-handler
+    steps:
+    - - name: notify
+        template: print-exit-status
+
+  - name: print-exit-status
+    container:
+      image: ghcr.io/ai-denied/captcha-bank:latest
+      command: [bash, -c]
+      args:
+      - |
+        echo "══════════════════════════════════════════════════════════════"
+        echo "  captcha_bank 파이프라인 종료  status={{workflow.status}}"
+        echo "══════════════════════════════════════════════════════════════"
+
+---
+# -----------------------------------------------------------------------------
+# [2] CronWorkflow — 매주 화요일 03:00 KST (18:00 UTC 월요일)
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: captcha-bank-pipeline-cron
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: mlops-cron
+spec:
+  schedule: "0 18 * * 1"   # 매주 월요일 18:00 UTC = 화요일 03:00 KST
+  timezone: "UTC"
+  concurrencyPolicy: Replace
+  startingDeadlineSeconds: 300
+  workflowSpec:
+    workflowTemplateRef:
+      name: captcha-bank-pipeline
+    arguments:
+      parameters:
+      - name: version
+        value: ""           # 빈 문자열 → 스크립트 내 날짜 기반 자동 생성
+      - name: pool_csv
+        value: "/data/context_emotion/captcha_bank/captcha_pool.csv"
+      - name: min_rows
+        value: "200"
+      - name: dry_run
+        value: "false"
+      - name: force_promote
+        value: "false"

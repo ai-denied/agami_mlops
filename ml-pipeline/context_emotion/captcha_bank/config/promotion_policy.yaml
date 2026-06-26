@@ -1,0 +1,33 @@
+# captcha_bank 후보 → current 승격 정책
+# compare_candidate.py 가 이 값을 읽어 게이트를 통과/실패를 판단한다.
+
+gates:
+  # 최소 풀 규모
+  min_pool_size: 200
+
+  # sklearn 어태커가 단일 문항을 맞힐 최대 허용 비율
+  # (낮을수록 CAPTCHA 풀이 더 안전)
+  max_attacker_pass_rate: 0.35
+
+  # 어태커가 3문제 챌린지를 통과할 최대 허용 비율
+  max_choice_policy_pass_rate: 0.10
+
+  # 최소 robust_rate (= 1 - attacker_pass_rate)
+  min_robust_rate: 0.65
+
+  # 최대 모호 비율 (human_confidence=low or ambiguous_models>0)
+  max_ambiguous_rate: 0.20
+
+  # 현재 대비 attacker_pass_rate 상승 허용 폭 (절댓값)
+  # 현재 모델이 없을 경우 이 게이트는 무시된다.
+  max_pass_rate_increase_vs_current: 0.05
+
+  # 최소 감정 클래스 다양성 (0개 클래스인 감정이 이 수 이하이어야 승격 허용)
+  max_zero_class_emotions: 2
+
+comparison:
+  # 더 나은 후보의 기준: 아래 두 조건 중 하나라도 만족
+  # 1) attacker_pass_rate 가 현재보다 낮음
+  # 2) pool_size 가 현재보다 크고 attacker_pass_rate 증가폭 허용 이내
+  prefer_lower_pass_rate: true
+  prefer_larger_pool:     true

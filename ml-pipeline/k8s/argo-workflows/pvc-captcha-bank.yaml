@@ -1,0 +1,40 @@
+# captcha_bank 파이프라인용 PersistentVolumeClaim
+#
+# 적용:
+#   kubectl apply -f pvc-captcha-bank.yaml -n agami
+
+---
+# 모델 스토어 PVC (model-store/captcha_bank/ 마운트)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: captcha-bank-model-store-pvc
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: model-store
+spec:
+  accessModes:
+  - ReadWriteMany        # 다중 pod 읽기/쓰기 (promote 단계)
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard  # 클러스터 환경에 맞게 조정
+
+---
+# 데이터 PVC (captcha_pool.csv 및 이미지 마운트)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: captcha-bank-data-pvc
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: data
+spec:
+  accessModes:
+  - ReadOnlyMany         # 파이프라인에서 읽기 전용
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
