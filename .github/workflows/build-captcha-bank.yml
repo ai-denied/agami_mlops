@@ -67,3 +67,23 @@ jobs:
           echo "Pushed image:"
           echo "${{ steps.tag.outputs.full_image }}"
           echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+  deploy:
+    name: Rollout Restart
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Set kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Rollout restart
+        run: |
+          kubectl rollout restart deployment/context-emotion-api -n agami
+          kubectl rollout status deployment/context-emotion-api -n agami --timeout=120s
