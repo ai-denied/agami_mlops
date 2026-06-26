@@ -149,7 +149,7 @@ def _step8_smoke(current_dir: Path) -> bool:
 
 def run_pipeline(args: argparse.Namespace) -> bool:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    version = args.version
+    version = args.version or f"v{datetime.now(timezone.utc).strftime('%Y%m%d')}"
 
     _banner(
         f"captcha_bank MLOps 파이프라인\n"
@@ -227,8 +227,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="captcha_bank MLOps 파이프라인 (8단계)")
     ap.add_argument("--pool-csv",      type=Path, required=True,
                     help="export_captcha_pool.py 출력 CSV")
-    ap.add_argument("--version",       required=True,
-                    help="모델 버전 (예: v1_20260701)")
+    ap.add_argument("--version",       default="",
+                    help="모델 버전 (예: v1_20260701). 생략 시 날짜 기반 자동 생성")
     ap.add_argument("--policy",        type=Path, default=_DEFAULT_POLICY,
                     help="승격 정책 YAML")
     ap.add_argument("--min-rows",      type=int, default=200,

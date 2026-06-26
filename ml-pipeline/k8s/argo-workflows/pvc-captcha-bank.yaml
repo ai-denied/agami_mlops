@@ -1,10 +1,40 @@
-# captcha_bank 파이프라인용 PersistentVolumeClaim
+# =============================================================================
+# pvc-captcha-bank.yaml
+#
+# captcha_bank Argo Workflow에서 사용하는 볼륨 정의
+#
+# 포함 PVC:
+#   1. captcha-bank-model-store-pvc  — model-store + step 간 workdir 공유용
+#   2. captcha-bank-data-pvc         — CAPTCHA 풀 CSV + 이미지 데이터 (읽기 전용)
+#
+# 중요:
+#   DAG 파이프라인의 병렬 step(STEP 2 + STEP 4)이 model-store PVC를 동시에
+#   마운트할 수 있어야 하므로 accessModes: ReadWriteMany 가 필수이다.
+#   → 클러스터에 NFS, Longhorn, Ceph, EFS 등 RWX 지원 CSI가 필요하다.
 #
 # 적용:
 #   kubectl apply -f pvc-captcha-bank.yaml -n agami
+# =============================================================================
 
 ---
-# 모델 스토어 PVC (model-store/captcha_bank/ 마운트)
+# =============================================================================
+# [1] captcha-bank-model-store-pvc
+#
+# 마운트 경로 (컨테이너 내부):
+#   /workspace/ml-pipeline/model-store
+#
+# 저장 내용:
+#   model-store/captcha_bank/
+#     ├── current/      — 운영 중인 모델 (model.joblib, metadata.json 등)
+#     ├── candidates/   — 승격 대기 후보
+#     ├── archive/      — 교체된 이전 모델 백업
+#     └── .workdir/     — step 간 중간 파일 임시 저장 (완료 후 자동 정리)
+#
+# accessModes: ReadWriteMany
+#   병렬 실행되는 step(evaluate-model + build-choice-policy-report)이
+#   동시에 .workdir/ 에 쓰기 위해 필요하다.
+#   promote_model.py 의 os.rename() 원자적 교체도 동일 볼륨 내에서 동작한다.
+# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -15,14 +45,35 @@ metadata:
     component: model-store
 spec:
   accessModes:
-  - ReadWriteMany        # 다중 pod 읽기/쓰기 (promote 단계)
+    - ReadWriteMany   # 병렬 step 동시 접근에 필수 (NFS/Longhorn/EFS 등 RWX CSI 필요)
   resources:
     requests:
       storage: 10Gi
-  storageClassName: standard  # 클러스터 환경에 맞게 조정
+      # 산정 근거:
+      #   current/     ~50MB (model.joblib ~20MB + metadata + eval + pool CSV)
+      #   candidates/  ~50MB × N 버전
+      #   archive/     ~50MB × 5 버전 (보존 권장)
+      #   .workdir/    ~100MB (임시, 완료 후 정리)
+      #   → 합계 ~1GB, 여유분 포함 10Gi
+  storageClassName: "local-path"  # 환경에 맞게 교체 (NFS: "nfs-client", Longhorn: "longhorn")
 
 ---
-# 데이터 PVC (captcha_pool.csv 및 이미지 마운트)
+# =============================================================================
+# [2] captcha-bank-data-pvc
+#
+# 마운트 경로 (컨테이너 내부):
+#   /data
+#
+# 저장 내용:
+#   /data/context_emotion/captcha_bank/
+#     ├── captcha_pool.csv              — export_captcha_pool.py 출력 (pipeline 입력)
+#     ├── review_queue/                 — human_review_server 작업 디렉토리
+#     └── images/                       — 감정 이미지 원본
+#
+# accessModes: ReadOnlyMany
+#   파이프라인은 pool CSV를 읽기만 하므로 ReadOnlyMany로 안전하게 제한한다.
+#   human_review_server (별도 배포)는 이 PVC를 ReadWriteMany로 마운트해야 한다.
+# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -33,8 +84,13 @@ metadata:
     component: data
 spec:
   accessModes:
-  - ReadOnlyMany         # 파이프라인에서 읽기 전용
+    - ReadOnlyMany    # 파이프라인은 읽기 전용 (human_review_server는 별도 PVC 또는 RWX)
   resources:
     requests:
       storage: 50Gi
-  storageClassName: standard
+      # 산정 근거:
+      #   context_emotion/processed/ 데이터셋    ~수 GB
+      #   captcha_bank/images/                   ~10GB+
+      #   captcha_bank/review_queue/ (JSONL)     ~수백 MB
+      #   → 50Gi 여유분 포함
+  storageClassName: "local-path"  # 환경에 맞게 교체

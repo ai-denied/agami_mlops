@@ -1,0 +1,137 @@
+# =============================================================================
+# rbac-captcha-bank-workflow.yaml
+#
+# captcha_bank Argo Workflow 실행에 필요한 최소 RBAC 리소스
+#
+# 포함 리소스 (적용 순서):
+#   1. ServiceAccount  — captcha-bank-workflow-sa
+#   2. Role            — captcha-bank-workflow-role
+#   3. RoleBinding     — captcha-bank-workflow-rolebinding
+#
+# 적용 명령:
+#   kubectl apply -f rbac-captcha-bank-workflow.yaml -n agami
+#
+# ⚠️  운영 환경 주의사항:
+#   - 최소 권한 원칙(PoLP)으로 작성된 초안이다.
+#   - 실제 운영 클러스터 적용 전 DevOps 팀원이 아래 항목을 반드시 검토해야 한다.
+#     1. namespace 범위가 적절한지 (namespace-scoped Role vs ClusterRole)
+#     2. 각 verb가 실제로 필요한지
+#     3. 회사 보안 정책(PSP/OPA/Kyverno 등) 준수 여부
+# =============================================================================
+
+---
+# =============================================================================
+# [1] ServiceAccount
+#
+# 역할:
+#   Argo Workflow Pod(컨테이너 실행 단위)에 부착되는 계정.
+#   captcha-bank-pipeline.yaml 의 spec.serviceAccountName 에 지정된다.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: captcha-bank-workflow-sa
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: workflow-sa
+
+---
+# =============================================================================
+# [2] Role
+#
+# 권한 그룹별 설명:
+#
+#   [A] core API — Pod 관련
+#       Argo executor가 자신이 실행 중인 Pod의 상태를 조회하고
+#       step 완료 상태를 확인하기 위해 필요하다.
+#
+#   [B] Argo argoproj.io API — Workflow 관련
+#       workflowtaskresults : create/patch  — executor가 step 결과를 controller에 보고 (필수)
+#       workflows           : get/list/watch — 상태 조회 (argo get / Argo UI)
+#       workflowtemplates   : get/list      — WorkflowTemplate 참조 실행 시 필요
+#       cronworkflows       : get/list      — CronWorkflow 상태 확인
+#
+#   [flashlight와의 차이점]
+#   captcha_bank pipeline은 k8s Deployment rollout이 없으므로
+#   apps/deployments patch 권한이 없다.
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: captcha-bank-workflow-role
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: workflow-rbac
+
+rules:
+
+  # ── [A] Pod 접근 ─────────────────────────────────────────────────────────
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs:
+      - get
+      - list
+      - watch
+      - patch     # Argo executor가 Pod annotation으로 step 상태를 기록
+
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs:
+      - get
+      - list
+      - watch
+
+  # ── [B-1] Argo task 결과 보고 (필수) ─────────────────────────────────────
+  # executor가 각 step의 output/exit code를 controller에 전달하기 위한 필수 권한.
+  # 이 권한이 없으면 Workflow가 Pending 또는 Error 상태로 멈춘다.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs:
+      - create
+      - patch
+
+  # ── [B-2] Workflow 상태 조회 ──────────────────────────────────────────────
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows"]
+    verbs:
+      - get
+      - list
+      - watch
+
+  # ── [B-3] WorkflowTemplate 참조 ───────────────────────────────────────────
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtemplates"]
+    verbs:
+      - get
+      - list
+
+  # ── [B-4] CronWorkflow 상태 조회 ─────────────────────────────────────────
+  - apiGroups: ["argoproj.io"]
+    resources: ["cronworkflows"]
+    verbs:
+      - get
+      - list
+      - watch
+
+---
+# =============================================================================
+# [3] RoleBinding
+# =============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: captcha-bank-workflow-rolebinding
+  namespace: agami
+  labels:
+    app: captcha-bank
+    component: workflow-rbac
+subjects:
+  - kind: ServiceAccount
+    name: captcha-bank-workflow-sa
+    namespace: agami
+roleRef:
+  kind: Role
+  name: captcha-bank-workflow-role
+  apiGroup: rbac.authorization.k8s.io
