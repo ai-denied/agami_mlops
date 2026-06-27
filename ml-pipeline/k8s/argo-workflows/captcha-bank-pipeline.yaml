@@ -336,7 +336,8 @@ metadata:
     app: captcha-bank
     component: mlops-cron
 spec:
-  schedule: "0 18 * * 1"   # 매주 월요일 18:00 UTC = 화요일 03:00 KST
+  schedules:
+  - "0 18 * * 1"            # 매주 월요일 18:00 UTC = 화요일 03:00 KST
   timezone: "UTC"
   concurrencyPolicy: Replace
   startingDeadlineSeconds: 300
@@ -346,9 +347,9 @@ spec:
     arguments:
       parameters:
       - name: version
-        value: ""           # 빈 문자열 → run_pipeline.py 내부에서 날짜 기반 자동 생성
+        value: ""           # 빈 문자열 → 수동 실행 시 반드시 지정할 것
       - name: pool_csv
-        value: "/data/context_emotion/captcha_bank/captcha_pool.csv"
+        value: "/data/context_emotion/processed/captcha_bank_weighted_2122.csv"
       - name: min_rows
         value: "200"
       - name: dry_run
