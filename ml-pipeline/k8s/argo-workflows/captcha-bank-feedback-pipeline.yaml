@@ -111,7 +111,7 @@ spec:
           - name: command
             value: |
               python -m context_emotion.captcha_bank.feedback.aggregate_attempt_logs \
-                --log-dir   /data/context_emotion/attempt_logs \
+                --log-dir   /attempt-logs \
                 --model-dir model-store/captcha_bank/current \
                 --output    "${WORKDIR}/aggregated_stats.csv"
 
@@ -334,7 +334,7 @@ spec:
 
         # trigger_policy 실행 — exit 1 은 "트리거 안 함" 을 의미, 파이프라인 실패 아님
         python -m context_emotion.captcha_bank.feedback.trigger_policy \
-          --log-dir    /data/context_emotion/attempt_logs \
+          --log-dir    /attempt-logs \
           --model-dir  model-store/captcha_bank/current \
           --policy     context_emotion/captcha_bank/config/feedback_trigger_policy.yaml \
           --output     /tmp/should_run.txt \
@@ -360,7 +360,7 @@ spec:
         mountPath: /data/context_emotion
         readOnly: true
       - name: attempt-logs
-        mountPath: /data/context_emotion/attempt_logs
+        mountPath: /attempt-logs
         readOnly: true
       resources:
         requests:
@@ -406,7 +406,7 @@ spec:
         mountPath: /data/context_emotion
         readOnly: true
       - name: attempt-logs
-        mountPath: /data/context_emotion/attempt_logs
+        mountPath: /attempt-logs
         readOnly: true
       resources:
         requests:
@@ -435,7 +435,8 @@ metadata:
     app: captcha-bank
     component: feedback-mlops
 spec:
-  schedule: "0 2 * * *"        # UTC 02:00 = KST 11:00
+  schedules:
+  - "0 2 * * *"               # UTC 02:00 = KST 11:00
   timezone: "Asia/Seoul"
   concurrencyPolicy: Forbid
   suspend: false                # 즉시 활성화
