@@ -25,7 +25,7 @@ from typing import Optional
 import yaml  # PyYAML
 
 _SCRIPT_DIR       = Path(__file__).resolve().parent
-_ML_PIPELINE_ROOT = _SCRIPT_DIR.parents[3]
+_ML_PIPELINE_ROOT = _SCRIPT_DIR.parents[2]   # ml-pipeline/
 _STORE            = _ML_PIPELINE_ROOT / "model-store" / "captcha_bank"
 _CANDIDATES_DIR   = _STORE / "candidates"
 _CURRENT_DIR      = _STORE / "current"

@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 _SCRIPT_DIR       = Path(__file__).resolve().parent
-_ML_PIPELINE_ROOT = _SCRIPT_DIR.parents[3]
+_ML_PIPELINE_ROOT = _SCRIPT_DIR.parents[2]   # ml-pipeline/
 _CURRENT_DIR      = _ML_PIPELINE_ROOT / "model-store" / "captcha_bank" / "current"
 
 _W = 60
