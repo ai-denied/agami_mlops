@@ -138,10 +138,11 @@ A: {'is_correct': False, 'retry_allowed': True}
 |---|---|
 | context-emotion-api Deployment | `1/1 Running` |
 | 모델 풀 | `pool_loaded: true`, 2122문항, v1_20260627 |
-| CronWorkflow | 매주 화요일 03:00 KST 자동 실행 설정 완료 |
+| CronWorkflow (초기 학습) | 매주 화요일 03:00 KST 자동 실행 설정 완료 |
 | API 명세서 | `docs/api-spec-context-emotion.md` 작성 완료 |
 | 엔드포인트 검증 | 3개 전부 정상 확인 |
-| **외부 노출** | **미완료 — Service가 ClusterIP, Ingress 미설정** |
+| 피드백 파이프라인 | WorkflowTemplate + CronWorkflow 클러스터 적용 완료 |
+| **외부 노출** | **미완료 — Service가 ClusterIP, Ingress는 인프라팀 관할** |
 
 ---
 
@@ -156,8 +157,48 @@ A: {'is_correct': False, 'retry_allowed': True}
 - **session_id min_length=8 검증을 테스트 코드에서 놓쳤다**: `"t-001"` (5자)으로 422 오류를 맞고 수정했다. API 명세서에 제약 조건을 잘 명시해뒀으므로 위젯팀은 같은 실수를 하지 않을 것이다.
 - **이미지 외부 접근 미검증**: `/static/images/frame_jp0abl1wirthn4ca.jpg`가 URL로 반환됐지만, 실제 브라우저에서 이미지가 보이려면 Ingress 또는 NodePort 설정이 필요하다. 위젯 연동 전에 확인 필요.
 
-## 6. 다음 액션
+## 6. 피드백 파이프라인 적용 (세션 후반)
 
-1. **Ingress 또는 NodePort 설정**: 위젯팀이 브라우저에서 API 및 이미지에 접근할 수 있도록 외부 노출 필요. Base URL 확정 후 `docs/api-spec-context-emotion.md` 업데이트.
-2. **위젯팀에 명세서 전달**: `docs/api-spec-context-emotion.md` + 확정된 Base URL.
-3. **피드백 파이프라인 (`captcha-bank-feedback-pipeline`)**: attempt 로그를 학습에 피드백하는 파이프라인이 `ml-pipeline/k8s/argo-workflows/captcha-bank-feedback-pipeline.yaml`에 있으나 아직 미연동 상태.
+초기 학습 파이프라인과 별개로, attempt 로그 기반 자동 재학습 파이프라인을 클러스터에 적용했다.
+
+### 발견한 문제
+
+`captcha-bank-feedback-pipeline.yaml`이 코드에 이미 작성돼 있었고 Python 스크립트(`feedback/` 디렉토리)와 config 파일도 전부 존재했다. 단지 한 번도 클러스터에 `kubectl apply`된 적이 없었던 것이었다.
+
+적용 전 두 가지 버그를 수정했다:
+
+**① 중첩 마운트 문제**
+
+`data` PVC(`/data/context_emotion`, readOnly)와 `attempt-logs` PVC(`/data/context_emotion/attempt_logs`, readOnly)가 중첩되어 있어, 컨테이너 런타임이 readOnly 경로 안에 마운트 포인트를 생성하지 못하는 문제가 발생한다. 이전 Deployment에서 겪었던 것과 동일한 패턴.
+
+```yaml
+# 수정 전
+- name: attempt-logs
+  mountPath: /data/context_emotion/attempt_logs  # readOnly 경로 안에 중첩
+
+# 수정 후
+- name: attempt-logs
+  mountPath: /attempt-logs  # 최상위 독립 경로
+```
+
+`--log-dir` 인자 참조도 동일하게 수정 (check-trigger, aggregate-logs 두 곳).
+
+**② CronWorkflow `schedule` → `schedules`**
+
+Argo v4 breaking change. 이번 세션에서 세 번째 동일 수정.
+
+### 적용 결과
+
+```
+workflowtemplate.argoproj.io/captcha-bank-feedback-pipeline created
+cronworkflow.argoproj.io/captcha-bank-feedback-cron created
+```
+
+매일 KST 11:00에 자동 실행되며, 트리거 조건 미충족 시 check-trigger만 실행하고 Succeeded로 종료된다 (정상 동작).
+
+---
+
+## 7. 다음 액션
+
+1. **외부 노출**: Ingress 설정은 인프라팀 관할. 확정 후 `docs/api-spec-context-emotion.md` Base URL 업데이트.
+2. **피드백 파이프라인 첫 실행 확인**: attempt 로그가 쌓이면 내일 KST 11:00에 자동 실행됨. 첫 트리거 조건 충족 여부는 `feedback_trigger_policy.yaml` 설정에 따름.
