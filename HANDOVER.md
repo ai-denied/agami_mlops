@@ -1,54 +1,47 @@
 # 인수인계 — context-emotion-api 모델 파이프라인
 
-**작성일**: 2026-06-26  
-**다음 세션에서 바로 이어받을 수 있도록 작성**
+**작성일**: 2026-06-27 (업데이트)  
 
 ---
 
 ## 현재 상태 한 줄 요약
 
-`captcha-bank-pipeline` Argo Workflow 7단계(promote-model) Python SyntaxError를 수정해 `main` 브랜치에 푸시했다. **GitHub Actions 빌드 완료 후 파이프라인을 재실행하면 모델이 배포된다.**
+**완료.** `context-emotion-api` 모델 파이프라인 8단계 전부 통과, API `pool_loaded: true` 확인됨.
+
+```json
+{"status":"ok","pool_loaded":true,"problem_count":2122,"version":"v1_20260627","pool_loaded_at":"2026-06-27T07:18:31.526600+00:00"}
+```
 
 ---
 
-## 즉시 해야 할 것
+## 다음 할 일
 
-### Step 1. GitHub Actions 빌드 확인
+### 1. CronWorkflow schedule 수정 (미완료)
 
-```bash
-# 로컬에서 확인
-git pull
-# 또는 GitHub Actions 탭에서 최신 빌드 상태 확인
+`captcha-bank-pipeline.yaml`의 CronWorkflow가 Argo v4 미지원 필드를 사용 중:
+
+```yaml
+# 현재 (오류)
+spec:
+  schedule: "0 18 * * 1"
+
+# 수정 필요
+spec:
+  schedules:
+  - "0 18 * * 1"
 ```
 
-빌드가 완료됐다면 ArgoCD가 자동으로 새 이미지를 배포했을 것이다.  
-Pod가 `1/1 Running` 인지 확인:
-
+수정 후 적용:
 ```bash
-kubectl get pod -n agami -l app=context-emotion-api
+kubectl apply -f ml-pipeline/k8s/argo-workflows/captcha-bank-pipeline.yaml -n agami
 ```
 
-### Step 2. 파이프라인 재실행
+### 2. health 확인 방법 (curl 없음, port-forward 사용)
 
 ```bash
-argo submit --from workflowtemplate/captcha-bank-pipeline \
-  -p version=v1_20260626 \
-  -p pool_csv=/data/context_emotion/processed/captcha_bank_weighted_2122.csv \
-  -p force_promote=true \
-  -n agami --watch
+kubectl port-forward -n agami svc/context-emotion-api 8083 &
+sleep 2 && wget -qO- localhost:8083/health
 ```
-
-### Step 3. 모델 적재 확인
-
-파이프라인 8단계 모두 ✔ 완료 후:
-
-```bash
-# API health 확인
-kubectl exec -n agami -it deploy/context-emotion-api -- \
-  curl -s http://localhost:8083/health | python3 -m json.tool
-```
-
-`"pool_loaded": true`가 나오면 완료.
 
 ---
 
