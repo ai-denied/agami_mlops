@@ -76,7 +76,7 @@ spec:
         - name: IMAGE_BASE_URL
           value: "/static/images"
         - name: IMAGE_BASE_DIR
-          value: "/data/context_emotion"
+          value: "/data/context_emotion/context_emotion"
         - name: POOL_RELOAD_INTERVAL_SEC
           value: "300"
         - name: CHALLENGE_TTL_SEC
