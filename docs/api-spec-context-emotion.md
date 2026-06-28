@@ -106,8 +106,8 @@ Content-Type: application/json
 ```json
 {
   "challenge_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "image_url": "/static/images/sample_0042.jpg",
-  "choices": ["기쁨", "슬픔", "분노", "놀람"],
+  "image_url": "/static/images/emotic/framesdb/framesdb/images/frame_kmzni9cc6gdddr8t.jpg",
+  "choices": ["happiness", "anger", "fear", "sadness"],
   "expires_at": "2026-06-27T08:00:00.000000+00:00"
 }
 ```
@@ -119,8 +119,10 @@ Content-Type: application/json
 | `choices` | string[] | 4지선다 감정 레이블 (매 요청마다 순서 랜덤) |
 | `expires_at` | string | challenge 만료 시각 (ISO 8601 UTC, 기본 5분) |
 
-> **이미지 URL**: `image_url`은 같은 API 서버가 서빙합니다.  
-> 예: `http://<api-host>:8083/static/images/sample_0042.jpg`
+> **이미지 URL**: `image_url`은 같은 API 서버가 서빙합니다. 내부 서브디렉토리 경로가 포함된 형식이므로 파싱 없이 Base URL에 그대로 붙여 사용하세요.  
+> 예: `http://<api-host>:8083` + `image_url` 전체
+
+> **선택지 언어**: `choices`는 영어 레이블(`happiness`, `anger` 등 14종 중 4개)을 반환합니다. 한국어 표시가 필요하면 클라이언트에서 매핑하세요 (전체 목록은 별도 전달된 라벨 테이블 참조).
 
 > **보안**: 정답 레이블, 내부 점수, 문제 등급은 응답에 포함되지 않습니다.
 
