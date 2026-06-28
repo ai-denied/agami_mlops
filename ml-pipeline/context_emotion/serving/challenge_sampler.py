@@ -91,11 +91,11 @@ def create_challenge(pool: PoolState, session_id: str) -> tuple[ChallengeSession
     _session_counts[session_id] = _session_counts.get(session_id, 0) + 1
 
     # ── image_url 구성 ────────────────────────────────────────────────────
-    # 절대 경로에서 파일명만 추출해 정적 URL 생성
-    import os.path
+    # image_path는 DATA_ROOT(/workspace/data/context_emotion) 기준 상대경로.
+    # StaticFiles는 /data/context_emotion(= PVC 마운트)를 루트로 서빙하므로
+    # 상대 경로 그대로 URL에 붙여야 서브디렉토리까지 일치한다.
     image_path = row.get("image_path", "")
-    filename = os.path.basename(image_path) if image_path else "unknown.jpg"
-    image_url = f"{_IMAGE_BASE_URL}/{filename}"
+    image_url = f"{_IMAGE_BASE_URL}/{image_path}" if image_path else f"{_IMAGE_BASE_URL}/unknown.jpg"
 
     return session, image_url
 
