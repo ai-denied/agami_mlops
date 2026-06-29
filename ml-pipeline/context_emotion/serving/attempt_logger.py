@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 _ATTEMPT_LOG_DIR = Path(os.getenv("ATTEMPT_LOG_DIR", "/data/context_emotion/attempt_logs"))
 _MAX_RETRIES = int(os.getenv("MAX_CHALLENGE_RETRIES", "2"))
+_MIN_SOLVE_TIME_MS = int(os.getenv("MIN_SOLVE_TIME_MS", "800"))
 _write_lock = threading.Lock()
 
 
@@ -51,6 +52,10 @@ def validate_and_score(
 
     # 제시된 선택지 외 레이블 거부 (injection 방어)
     if selected not in session.choices:
+        return False, 0.0, req.retry_count < _MAX_RETRIES
+
+    # 비정상적으로 빠른 응답 — 봇 탐지, 클라이언트에 이유 미노출
+    if req.solve_time_ms < _MIN_SOLVE_TIME_MS:
         return False, 0.0, req.retry_count < _MAX_RETRIES
 
     is_correct = selected == session.final_emotion

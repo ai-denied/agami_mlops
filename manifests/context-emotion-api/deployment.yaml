@@ -83,6 +83,8 @@ spec:
           value: "300"
         - name: MAX_CHALLENGE_RETRIES
           value: "2"
+        - name: MIN_SOLVE_TIME_MS
+          value: "800"
         - name: MAX_CHALLENGES_PER_SESSION
           value: "10"
 
