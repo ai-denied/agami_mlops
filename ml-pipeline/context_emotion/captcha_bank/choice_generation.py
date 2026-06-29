@@ -57,35 +57,38 @@ def add_choice(choices: list[str], emotion: str, final_emotion: str) -> None:
 def generate_choices(row: dict, seed: int | None = None) -> list[str]:
     rng = random.Random(seed if seed is not None else row.get("sample_id", ""))
     final = row["final_emotion"]
+    # aux_emotions는 선택지에서 제외 — 정답과 구별하기 어려운 근접 감정이
+    # 오보기로 나오면 사용자 혼란을 유발하므로 선택지 풀에서 배제한다.
+    # (scoring의 choice_credit에서는 여전히 참조되지 않지만 로그 분석용으로 유지)
+    excluded = set(parse_aux(row.get("aux_emotions", "[]")))
     choices = [final]
 
-    # 1. Human auxiliary emotions are useful near-misses and allow partial credit.
-    for emotion in parse_aux(row.get("aux_emotions", "[]")):
-        add_choice(choices, emotion, final)
-        if len(choices) >= 2:
-            break
-
-    # 2. Add wrong labels actually chosen by attackers.
+    # 1. Wrong labels actually chosen by attackers.
     for key in ["qwen_emotion", "smolvlm_emotion", "self_attack_emotion"]:
-        add_choice(choices, row.get(key, ""), final)
+        e = row.get(key, "")
+        if e not in excluded:
+            add_choice(choices, e, final)
         if len(choices) >= 4:
             break
 
-    # 3. Fill with same-group or manually close emotions.
+    # 2. Fill with same-group or manually close emotions.
     for emotion in FALLBACK_CONFUSIONS.get(final, []):
-        add_choice(choices, emotion, final)
+        if emotion not in excluded:
+            add_choice(choices, emotion, final)
         if len(choices) >= 4:
             break
 
     group = EMOTION_TO_GROUP.get(final)
     for emotion in EMOTION_GROUPS.get(group, []):
-        add_choice(choices, emotion, final)
+        if emotion not in excluded:
+            add_choice(choices, emotion, final)
         if len(choices) >= 4:
             break
 
-    # 4. Last-resort fill with globally valid labels.
+    # 3. Last-resort fill with globally valid labels.
     for emotion in EMOTIONS:
-        add_choice(choices, emotion, final)
+        if emotion not in excluded:
+            add_choice(choices, emotion, final)
         if len(choices) >= 4:
             break
 
