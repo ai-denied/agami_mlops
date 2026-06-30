@@ -23,10 +23,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from facial_recognition.inference.onnx_face_liveness_detector import classify_spoof_risk
-
 Decision = Literal["PASS", "RETRY", "FAIL"]
 RiskBand = Literal["real_safe", "suspicious", "spoof_detected"]
+
+
+def classify_spoof_risk(score: float, low_thr: float, high_thr: float) -> RiskBand:
+    if score < low_thr:
+        return "real_safe"
+    if score < high_thr:
+        return "suspicious"
+    return "spoof_detected"
 
 # 모델 재학습 없이 운영에서 쓸 안전한 기본 threshold.
 DEFAULT_LOW_THR  = 0.21
