@@ -57,6 +57,14 @@ spec:
   serviceAccountName: captcha-bank-workflow-sa
   entrypoint: feedback-dag
 
+  ttlStrategy:
+    secondsAfterCompletion: 86400   # 완료(성공/실패 모두) 24시간 후 워크플로우 객체 삭제
+    secondsAfterSuccess: 86400
+    secondsAfterFailure: 259200     # 실패는 3일 유지 (디버깅 여유)
+
+  podGC:
+    strategy: OnWorkflowCompletion  # 워크플로우 종료 시 pod 즉시 정리
+
   # ── 공통 파라미터 ─────────────────────────────────────────────────────────
   arguments:
     parameters:
