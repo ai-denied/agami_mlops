@@ -47,7 +47,8 @@ class ChallengeResponse(BaseModel):
 class AttemptResponse(BaseModel):
     is_correct: bool
     retry_allowed: bool
-    # ⛔ 미포함: points, correct_label, score, 내부 보안 지표
+    score: float  # 1.0 = 정확 정답 / 0.5 = 같은 감정 그룹 / 0.0 = 오답
+    # ⛔ 미포함: correct_label, 내부 보안 지표
 
 
 class HealthResponse(BaseModel):

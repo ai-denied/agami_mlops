@@ -211,4 +211,4 @@ async def submit_attempt(req: AttemptRequest) -> AttemptResponse:
         problem_count=pool.problem_count,
     )
 
-    return AttemptResponse(is_correct=is_correct, retry_allowed=retry_allowed)
+    return AttemptResponse(is_correct=is_correct, retry_allowed=retry_allowed, score=points)

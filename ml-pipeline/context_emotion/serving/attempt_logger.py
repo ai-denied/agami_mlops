@@ -25,6 +25,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from context_emotion.captcha_bank.choice_generation import EMOTION_TO_GROUP
 from context_emotion.serving.challenge_sampler import ChallengeSession
 from context_emotion.serving.schemas import AttemptRequest
 
@@ -45,7 +46,7 @@ def validate_and_score(
     """(is_correct, points, retry_allowed) 반환.
 
     is_correct: selected_label == final_emotion (정확 일치)
-    points:     0.0 / 0.5 / 1.0 (피드백 MLOps 입력용, API 응답 미포함)
+    points:     1.0 = 정확 정답 / 0.5 = 같은 감정 그룹 / 0.0 = 오답
     retry_allowed: 오답이고 retry_count < MAX_RETRIES 일 때만 True
     """
     selected = req.selected_label
@@ -61,7 +62,10 @@ def validate_and_score(
     is_correct = selected == session.final_emotion
     if is_correct:
         points = 1.0
-    elif selected in session.aux_emotions:
+    elif (
+        EMOTION_TO_GROUP.get(selected) is not None
+        and EMOTION_TO_GROUP.get(selected) == EMOTION_TO_GROUP.get(session.final_emotion)
+    ):
         points = 0.5
     else:
         points = 0.0
