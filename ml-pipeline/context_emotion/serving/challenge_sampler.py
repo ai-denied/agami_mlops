@@ -117,18 +117,23 @@ def invalidate(challenge_id: str) -> None:
 
 
 # ── 가중치 샘플링 ─────────────────────────────────────────────────────────────
+# pool CSV의 selection_weight(모델링 시 산정된 grade_base_weight +
+# hardened_bonus_weight 최종값)를 그대로 사용한다. security_grade만 보고
+# 자체 가중치를 재계산하면 hardened_468/strict_232 보너스가 누락되므로 안 된다.
 
-_GRADE_WEIGHTS = {"S": 4, "A": 3, "B": 2, "C": 1, "": 1}
+_DEFAULT_WEIGHT = 1.0
 
 
 def _weighted_sample(rows: list[dict]) -> dict:
-    """security_grade 기반 가중 샘플링. 없으면 균등 샘플링."""
-    weights = [
-        _GRADE_WEIGHTS.get(r.get("security_grade", ""), 1)
-        for r in rows
-    ]
+    """selection_weight 기반 가중 샘플링. 없거나 파싱 불가면 기본값으로 대체."""
+    weights = []
+    for r in rows:
+        try:
+            weights.append(float(r.get("selection_weight", "") or _DEFAULT_WEIGHT))
+        except ValueError:
+            weights.append(_DEFAULT_WEIGHT)
     # Python 3.6+ random.choices는 weights 합이 0이면 오류 — 방어
-    if all(w == 1 for w in weights):
+    if sum(weights) <= 0 or all(w == _DEFAULT_WEIGHT for w in weights):
         return random.choice(rows)
     return random.choices(rows, weights=weights, k=1)[0]
 
