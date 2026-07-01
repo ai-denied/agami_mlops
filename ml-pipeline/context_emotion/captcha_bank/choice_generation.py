@@ -9,12 +9,9 @@ from pathlib import Path
 EMOTIONS = ["happiness", "calm", "anticipation", "affection", "anger", "fear", "sadness", "disconnection", "suffering", "aversion", "embarrassment", "confidence", "confusion", "yearning"]
 
 EMOTION_GROUPS = {
-    "positive": ["happiness", "affection", "confidence", "anticipation"],
-    "calm": ["calm"],
-    "distress": ["sadness", "suffering", "disconnection", "embarrassment"],
+    "positive": ["happiness", "affection", "confidence", "anticipation", "calm"],
+    "distress": ["sadness", "suffering", "disconnection", "embarrassment", "confusion", "yearning"],
     "threat": ["fear", "anger", "aversion"],
-    "confusion": ["confusion"],
-    "yearning": ["yearning"],
 }
 
 EMOTION_TO_GROUP = {emotion: group for group, emotions in EMOTION_GROUPS.items() for emotion in emotions}
@@ -57,10 +54,11 @@ def add_choice(choices: list[str], emotion: str, final_emotion: str) -> None:
 def generate_choices(row: dict, seed: int | None = None) -> list[str]:
     rng = random.Random(seed if seed is not None else row.get("sample_id", ""))
     final = row["final_emotion"]
-    # aux_emotions는 선택지에서 제외 — 정답과 구별하기 어려운 근접 감정이
-    # 오보기로 나오면 사용자 혼란을 유발하므로 선택지 풀에서 배제한다.
-    # (scoring의 choice_credit에서는 여전히 참조되지 않지만 로그 분석용으로 유지)
+    # aux_emotions와 정답과 같은 EMOTION_GROUPS 그룹인 감정은 선택지에서 제외한다.
+    # 근접 감정이 오보기로 나오면 사용자 혼란을 유발하므로 선택지 풀에서 배제한다.
+    # (scoring의 choice_credit/EMOTION_TO_GROUP에서는 여전히 참조되지만 선택지 후보로는 안 씀)
     excluded = set(parse_aux(row.get("aux_emotions", "[]")))
+    excluded |= {e for e in EMOTION_GROUPS.get(EMOTION_TO_GROUP.get(final), []) if e != final}
     choices = [final]
 
     # 1. Wrong labels actually chosen by attackers.
@@ -71,15 +69,8 @@ def generate_choices(row: dict, seed: int | None = None) -> list[str]:
         if len(choices) >= 4:
             break
 
-    # 2. Fill with same-group or manually close emotions.
+    # 2. Fill with manually curated close-but-different-group emotions.
     for emotion in FALLBACK_CONFUSIONS.get(final, []):
-        if emotion not in excluded:
-            add_choice(choices, emotion, final)
-        if len(choices) >= 4:
-            break
-
-    group = EMOTION_TO_GROUP.get(final)
-    for emotion in EMOTION_GROUPS.get(group, []):
         if emotion not in excluded:
             add_choice(choices, emotion, final)
         if len(choices) >= 4:
