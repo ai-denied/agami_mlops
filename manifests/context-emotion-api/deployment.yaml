@@ -47,7 +47,7 @@ spec:
 
       containers:
       - name: captcha-api
-        image: agami-captcha.cloud:8443/agami/agami-captcha-bank:ff6e63cf
+        image: agami-captcha.cloud:8443/agami/agami-captcha-bank:cedf6e31
         imagePullPolicy: Always
 
         command:
