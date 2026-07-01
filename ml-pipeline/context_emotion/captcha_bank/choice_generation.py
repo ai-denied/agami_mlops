@@ -16,6 +16,12 @@ EMOTION_GROUPS = {
 
 EMOTION_TO_GROUP = {emotion: group for group, emotions in EMOTION_GROUPS.items() for emotion in emotions}
 
+# 정답과 같은 그룹인 오답을 선택지에서 배제할 확률.
+# 1.0(항상 배제)은 attacker_pass_rate를 67.6%->94.7%까지 끌어올리는 것으로
+# 확인돼(choice_features가 선택지 그룹 구성만으로 정답을 추론), 0.3으로 낮춰
+# 사람 체감 개선과 공격 저항력 사이 절충점을 취한다.
+SAME_GROUP_EXCLUSION_RATE = 0.3
+
 FALLBACK_CONFUSIONS = {
     "happiness": ["affection", "confidence", "anticipation", "calm"],
     "affection": ["happiness", "calm", "yearning", "confidence"],
@@ -54,11 +60,15 @@ def add_choice(choices: list[str], emotion: str, final_emotion: str) -> None:
 def generate_choices(row: dict, seed: int | None = None) -> list[str]:
     rng = random.Random(seed if seed is not None else row.get("sample_id", ""))
     final = row["final_emotion"]
-    # aux_emotions와 정답과 같은 EMOTION_GROUPS 그룹인 감정은 선택지에서 제외한다.
-    # 근접 감정이 오보기로 나오면 사용자 혼란을 유발하므로 선택지 풀에서 배제한다.
-    # (scoring의 choice_credit/EMOTION_TO_GROUP에서는 여전히 참조되지만 선택지 후보로는 안 씀)
+    # aux_emotions는 항상 제외한다. 같은 그룹 오답은 SAME_GROUP_EXCLUSION_RATE
+    # 확률로만 제외한다 — 매번 배제하면 "선택지에 정답 그룹이 하나만 있다"는
+    # 패턴이 100% 확정적이 되어 메타데이터만 보는 공격자에게 정답이 그대로
+    # 드러난다 (SAME_GROUP_EXCLUSION_RATE 설명 참고). 배제 여부는 sample_id
+    # 기반 난수로 결정해 shuffle에 쓰는 seed(요청마다 달라짐)와 분리한다.
     excluded = set(parse_aux(row.get("aux_emotions", "[]")))
-    excluded |= {e for e in EMOTION_GROUPS.get(EMOTION_TO_GROUP.get(final), []) if e != final}
+    excl_rng = random.Random(f"{row.get('sample_id', '')}_group_excl")
+    if excl_rng.random() < SAME_GROUP_EXCLUSION_RATE:
+        excluded |= {e for e in EMOTION_GROUPS.get(EMOTION_TO_GROUP.get(final), []) if e != final}
     choices = [final]
 
     # 1. Wrong labels actually chosen by attackers.
